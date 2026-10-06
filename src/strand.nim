@@ -1,7 +1,7 @@
 # /Users/eek/Development/vine/src/strand.nim
 # Strand (workspace) provisioning, listing, and lifecycle management for Braid.
 
-import std/[os, osproc, strutils, json, times]
+import std/[os, osproc, strutils, json, times, tables, sets, algorithm]
 import config
 
 type
@@ -59,14 +59,18 @@ proc doStrandNew*(
   branchParam: string = "",
   baseRef: string = "HEAD",
   forceRift: bool = false,
-  forceWorktree: bool = false
+  forceWorktree: bool = false,
+  parentBranch: string = ""
 ): tuple[manifest: JsonNode, exitCode: int] =
   let repoDir = if repoDirParam.len > 0: repoDirParam.normalizedPath else: getRepoRoot()
   let projectName = repoDir.splitPath.tail
   let cfg = loadVineConfig(repoDir / "vine.toml")
 
   let branch = if branchParam.len > 0: branchParam else: "strand/" & taskId
-  let baseBranch = if baseRef == "HEAD": cfg.primaryBranch else: baseRef
+  let effectiveParent = if parentBranch.len > 0: parentBranch
+                        elif baseRef != "HEAD": baseRef
+                        else: cfg.primaryBranch
+  let baseBranch = effectiveParent
 
   let home = getHomeDir()
   let workspacesBase = home / "Development" / "workspaces" / projectName / taskId
@@ -99,10 +103,11 @@ proc doStrandNew*(
       errObj["message"] = %("Rift creation failed: " & rout)
       return (errObj, rcode)
     # Check out branch inside rift clone
-    discard execCmdEx("git -C " & quoteShell(strandDir) & " checkout -q -b " & quoteShell(branch))
+    discard execCmdEx("git -C " & quoteShell(strandDir) & " checkout -q -b " & quoteShell(branch) & " " & quoteShell(effectiveParent))
   else:
     toolUsed = "git-worktree"
-    let wtCmd = "git -C " & quoteShell(repoDir) & " worktree add " & quoteShell(strandDir) & " -b " & quoteShell(branch) & " " & quoteShell(baseRef)
+    let wtBase = effectiveParent
+    let wtCmd = "git -C " & quoteShell(repoDir) & " worktree add " & quoteShell(strandDir) & " -b " & quoteShell(branch) & " " & quoteShell(wtBase)
     let (wout, wcode) = execCmdEx(wtCmd)
     if wcode != 0:
       var errObj = newJObject()
@@ -168,7 +173,10 @@ proc doStrandNew*(
       discard
 
   # Initialize .vine.json Manifest
-  let baseCommit = getHeadCommit(repoDir)
+  let (bcOut, bcCode) = execCmdEx("git -C " & quoteShell(repoDir) & " rev-parse " & quoteShell(baseBranch))
+  let baseCommit = if bcCode == 0 and bcOut.strip().len > 0: bcOut.strip() else: getHeadCommit(repoDir)
+  let (mbOut, mbCode) = execCmdEx("git -C " & quoteShell(repoDir) & " merge-base " & quoteShell(baseBranch) & " " & quoteShell(cfg.primaryBranch))
+  let intendedMergeBase = if mbCode == 0 and mbOut.strip().len > 0: mbOut.strip() else: baseCommit
   let manifest = %*{
     "task_id": taskId,
     "project": projectName,
@@ -176,8 +184,11 @@ proc doStrandNew*(
     "strand_path": strandDir,
     "branch": branch,
     "base_branch": baseBranch,
+    "parent_branch": baseBranch,
     "base_commit": baseCommit,
-    "status": "IN_PROGRESS",
+    "intended_merge_base": intendedMergeBase,
+    "status": "PROVISIONED",
+    "lifecycle_state": "PROVISIONED",
     "created_at": now().utc().format("yyyy-MM-dd'T'HH:mm:ss'Z'"),
     "tool": toolUsed
   }
@@ -189,6 +200,10 @@ proc doStrandNew*(
   res["project"] = %projectName
   res["strand_path"] = %strandDir
   res["branch"] = %branch
+  res["parent_branch"] = %baseBranch
+  res["base_branch"] = %baseBranch
+  res["base_commit"] = %baseCommit
+  res["intended_merge_base"] = %intendedMergeBase
   res["tool"] = %toolUsed
   return (res, 0)
 
@@ -357,4 +372,193 @@ proc doStrandSync*(
   res["strand_path"] = %strandDir
   res["mode"] = if useRebase: %"rebase" else: %"merge"
   return (res, 0)
+
+proc doStrandStatus*(strandDirOrId: string = ""): tuple[status: JsonNode, exitCode: int] =
+  var strandDir = ""
+  var manifest: JsonNode = nil
+
+  if strandDirOrId.len > 0:
+    if dirExists(strandDirOrId):
+      strandDir = strandDirOrId.normalizedPath
+    else:
+      let allStrands = doStrandList("", includeAll = true)
+      for s in allStrands{"strands"}:
+        if s{"task_id"}.getStr == strandDirOrId or s{"branch"}.getStr == strandDirOrId or s{"strand_path"}.getStr.contains(strandDirOrId):
+          strandDir = s{"strand_path"}.getStr
+          break
+      if strandDir.len == 0:
+        var errObj = newJObject()
+        errObj["status"] = %"error"
+        errObj["message"] = %("Strand not found for identifier: " & strandDirOrId)
+        return (errObj, 1)
+  else:
+    strandDir = getCurrentDir()
+
+  let manifestPath = strandDir / ".vine.json"
+  if fileExists(manifestPath):
+    try: manifest = parseJson(readFile(manifestPath))
+    except CatchableError: discard
+
+  let taskId = if manifest != nil and manifest.hasKey("task_id"): manifest["task_id"].getStr else: strandDir.splitPath.tail
+  let project = if manifest != nil and manifest.hasKey("project"): manifest["project"].getStr else: ""
+  let strandBranch = if manifest != nil and manifest.hasKey("branch"): manifest["branch"].getStr
+                     else:
+                       let (bOut, bCode) = execCmdEx("git -C " & quoteShell(strandDir) & " rev-parse --abbrev-ref HEAD")
+                       if bCode == 0: bOut.strip() else: "HEAD"
+  let baseBranch = if manifest != nil and manifest.hasKey("base_branch"): manifest["base_branch"].getStr else: "main"
+  let parentBranch = if manifest != nil and manifest.hasKey("parent_branch"): manifest["parent_branch"].getStr else: baseBranch
+  let baseCommit = if manifest != nil and manifest.hasKey("base_commit"): manifest["base_commit"].getStr else: ""
+  let intendedMergeBase = if manifest != nil and manifest.hasKey("intended_merge_base"): manifest["intended_merge_base"].getStr else: baseCommit
+  let storedStatus = if manifest != nil and manifest.hasKey("status"): manifest["status"].getStr else: "IN_PROGRESS"
+  let tool = if manifest != nil and manifest.hasKey("tool"): manifest["tool"].getStr else: "git-worktree"
+
+  var commitsAhead = 0
+  var commitsBehind = 0
+  let (aheadOut, aheadCode) = execCmdEx("git -C " & quoteShell(strandDir) & " rev-list --count " & quoteShell(parentBranch) & ".." & quoteShell(strandBranch))
+  if aheadCode == 0:
+    try: commitsAhead = parseInt(aheadOut.strip())
+    except CatchableError: discard
+
+  let (behindOut, behindCode) = execCmdEx("git -C " & quoteShell(strandDir) & " rev-list --count " & quoteShell(strandBranch) & ".." & quoteShell(parentBranch))
+  if behindCode == 0:
+    try: commitsBehind = parseInt(behindOut.strip())
+    except CatchableError: discard
+
+  var dirtyFiles = newJArray()
+  let (stOut, stCode) = execCmdEx("git -C " & quoteShell(strandDir) & " status --porcelain")
+  if stCode == 0:
+    for line in stOut.splitLines():
+      if line.len >= 3:
+        let filePath = line[3..^1].strip()
+        if filePath in [".vine.json", ".envrc", ".venv", ".git"] or filePath.startsWith(".vine."):
+          continue
+        dirtyFiles.add(%line.strip())
+
+  var lifecycleState = "IN_PROGRESS"
+  if storedStatus in ["MERGED", "WEAVED", "CLOSED"]:
+    lifecycleState = "MERGED"
+  elif storedStatus == "ABANDONED":
+    lifecycleState = "ABANDONED"
+  elif storedStatus == "GATE_EVALUATING":
+    lifecycleState = "GATE_EVALUATING"
+  elif storedStatus == "CONFLICTED":
+    lifecycleState = "CONFLICTED"
+  elif storedStatus == "GATE_FAILED":
+    lifecycleState = "GATE_FAILED"
+  elif storedStatus in ["READY_FOR_WEAVE", "GATE_PASSED"]:
+    if dirtyFiles.len > 0:
+      lifecycleState = "IN_PROGRESS"
+    else:
+      lifecycleState = "GATE_PASSED"
+  elif storedStatus == "PROVISIONED" and commitsAhead == 0 and dirtyFiles.len == 0:
+    lifecycleState = "PROVISIONED"
+  else:
+    lifecycleState = "IN_PROGRESS"
+
+  var res = newJObject()
+  res["task_id"] = %taskId
+  res["project"] = %project
+  res["strand_path"] = %strandDir
+  res["branch"] = %strandBranch
+  res["parent_branch"] = %parentBranch
+  res["base_branch"] = %baseBranch
+  res["base_commit"] = %baseCommit
+  res["intended_merge_base"] = %intendedMergeBase
+  res["lifecycle_state"] = %lifecycleState
+  res["status"] = %lifecycleState
+  res["stored_status"] = %storedStatus
+  res["commits_ahead"] = %commitsAhead
+  res["commits_behind"] = %commitsBehind
+  res["dirty_count"] = %(dirtyFiles.len)
+  res["dirty_files"] = dirtyFiles
+  res["tool"] = %tool
+
+  return (res, 0)
+
+proc doStrandCollisions*(repoDirParam: string = ""): JsonNode =
+  let repoDir = if repoDirParam.len > 0: repoDirParam.normalizedPath else: getRepoRoot()
+  let projectName = repoDir.splitPath.tail
+  let listData = doStrandList(repoDir, includeAll = false)
+  let activeStrands = listData{"strands"}
+
+  var fileToTaskIds = initTable[string, seq[string]]()
+  var strandFootprints = newJObject()
+
+  for item in activeStrands:
+    let status = item{"status"}.getStr("").toUpperAscii
+    let lifecycleState = item{"lifecycle_state"}.getStr("").toUpperAscii
+    if status in ["MERGED", "WEAVED", "CLOSED", "ABANDONED"] or
+       lifecycleState in ["MERGED", "WEAVED", "CLOSED", "ABANDONED"]:
+      continue
+
+    let taskId = item{"task_id"}.getStr("")
+    let sPath = item{"strand_path"}.getStr("")
+    let branch = item{"branch"}.getStr("")
+    let baseBranch = item{"base_branch"}.getStr("main")
+    let baseCommit = item{"base_commit"}.getStr("")
+
+    if not dirExists(sPath): continue
+
+    var touchedFiles = initHashSet[string]()
+
+    let diffRef = if baseBranch.len > 0: baseBranch else: baseCommit
+    if diffRef.len > 0:
+      let (dOut, dCode) = execCmdEx("git -C " & quoteShell(sPath) & " diff --name-only " & quoteShell(diffRef) & "..." & quoteShell(branch))
+      if dCode == 0:
+        for f in dOut.splitLines():
+          let tf = f.strip()
+          if tf.len > 0: touchedFiles.incl(tf)
+
+    let (sOut, sCode) = execCmdEx("git -C " & quoteShell(sPath) & " diff --name-only HEAD")
+    if sCode == 0:
+      for f in sOut.splitLines():
+        let tf = f.strip()
+        if tf.len > 0: touchedFiles.incl(tf)
+
+    let (uOut, uCode) = execCmdEx("git -C " & quoteShell(sPath) & " status --porcelain")
+    if uCode == 0:
+      for line in uOut.splitLines():
+        if line.len >= 3:
+          let f = line[3..^1].strip()
+          if f.len > 0 and f notin [".vine.json", ".envrc", ".venv", ".git"] and not f.startsWith(".vine."):
+            touchedFiles.incl(f)
+
+    var sortedFiles: seq[string] = @[]
+    for f in touchedFiles: sortedFiles.add(f)
+    sortedFiles.sort()
+
+    var fpArr = newJArray()
+    for f in sortedFiles:
+      fpArr.add(%f)
+      if not fileToTaskIds.hasKey(f):
+        fileToTaskIds[f] = @[]
+      fileToTaskIds[f].add(taskId)
+    strandFootprints[taskId] = fpArr
+
+  var sortedCollisionFiles: seq[string] = @[]
+  for f, tids in fileToTaskIds:
+    if tids.len > 1:
+      sortedCollisionFiles.add(f)
+  sortedCollisionFiles.sort()
+
+  var collisions = newJArray()
+  for f in sortedCollisionFiles:
+    let tids = fileToTaskIds[f]
+    var cObj = newJObject()
+    cObj["file"] = %f
+    var strandsArr = newJArray()
+    for tid in tids: strandsArr.add(%tid)
+    cObj["strands"] = strandsArr
+    cObj["count"] = %(tids.len)
+    collisions.add(cObj)
+
+  var res = newJObject()
+  res["project"] = %projectName
+  res["active_strands"] = %(activeStrands.len)
+  res["has_collisions"] = %(collisions.len > 0)
+  res["collision_count"] = %(collisions.len)
+  res["collisions"] = collisions
+  res["strand_footprints"] = strandFootprints
+  return res
+
 

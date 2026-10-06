@@ -48,9 +48,11 @@ Never stage or commit '.vine.json' or workspace metadata into Git. Strand metada
 
 | Command | Description | Example |
 | :--- | :--- | :--- |
-| `vine new <task_id>` | Creates an isolated Rift strand outside canonical root. | `vine new task-101 --branch feat/api` |
+| `vine new <task_id>` | Creates an isolated Rift strand outside canonical root. Supports `--parent <branch>`. | `vine new task-101 --branch feat/api --parent main` |
 | `vine new <task_id> --worktree` | Creates a strand using Git worktree fallback. | `vine new task-101 --worktree` |
-| `vine gate [--json]` | Evaluates Two-Key Gate (mechanical merge-tree + live test suite). | `vine gate --json` |
+| `vine status [<task_id>] [--json]` | Inspects commits ahead/behind, metadata filtering, and lifecycle state. | `vine status --json` |
+| `vine collisions [--json]` | Forecasts file footprint overlaps across active strands before merge. | `vine collisions --json` |
+| `vine gate [--json]` | Evaluates Two-Key Gate (mechanical merge-tree + live test suite). Supports `--test-command <cmd>`. | `vine gate --test-command "nimble test" --json` |
 | `vine weave` | Fast-forwards verified strand into trunk and prunes workspace. | `vine weave` |
 | `vine list` | Displays active strands, branch mappings, and manifests. | `vine list` |
 | `vine sync` | Re-synchronizes diverged canonical trunk changes into active strand. | `vine sync` |

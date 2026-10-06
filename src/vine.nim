@@ -4,15 +4,17 @@
 import std/[os, strutils, json]
 import strand, gate, weave, guide, config
 
-const Version = "0.1.6"
+const Version = "0.2.0"
 
 proc printHelp() =
   echo "Vine v" & Version & " — Sub-Second APFS CoW Workspaces & Zero-Mirage Git Weaving"
   echo ""
   echo "Usage:"
-  echo "  vine new <task_id> [--repo <path>] [--branch <name>] [--base <ref>] [--rift] [--worktree]"
+  echo "  vine new <task_id> [--repo <path>] [--branch <name>] [--base <ref>] [--parent <ref>] [--rift] [--worktree]"
   echo "  vine list [--repo <path>] [--all]"
-  echo "  vine gate [branch] [--base <ref>] [--dir <path>] [--skip-tests] [--json]"
+  echo "  vine status [task_id|path] [--dir <path>] [--json]"
+  echo "  vine collisions [--repo <path>] [--json]"
+  echo "  vine gate [branch] [--base <ref>] [--dir <path>] [--skip-tests] [--test-command <cmd>] [--json]"
   echo "  vine sync [--dir <path>] [--base <ref>] [--rebase]"
   echo "  vine weave [branch] [--base <ref>] [--dir <path>] [--force]"
   echo "  vine prune [--repo <path>] [--max-age <hours>] [--apply]"
@@ -37,12 +39,13 @@ proc main() =
   case cmd
   of "new", "create", "strand":
     if args.len < 2:
-      stderr.writeLine("Usage: vine new <task_id> [--repo <path>] [--branch <name>] [--base <ref>] [--rift] [--worktree]")
+      stderr.writeLine("Usage: vine new <task_id> [--repo <path>] [--branch <name>] [--base <ref>] [--parent <ref>] [--rift] [--worktree]")
       quit(1)
     let taskId = args[1]
     var repoDir = ""
     var branch = ""
     var baseRef = "HEAD"
+    var parentBranch = ""
     var forceRift = false
     var forceWorktree = false
     var i = 2
@@ -57,10 +60,13 @@ proc main() =
       elif a == "--base" and i + 1 < args.len:
         baseRef = args[i+1]; inc i
       elif a.startsWith("--base="): baseRef = a[7..^1]
+      elif a == "--parent" and i + 1 < args.len:
+        parentBranch = args[i+1]; inc i
+      elif a.startsWith("--parent="): parentBranch = a[9..^1]
       elif a == "--rift": forceRift = true
       elif a == "--worktree": forceWorktree = true
       inc i
-    let (res, code) = doStrandNew(taskId, repoDir, branch, baseRef, forceRift, forceWorktree)
+    let (res, code) = doStrandNew(taskId, repoDir, branch, baseRef, forceRift, forceWorktree, parentBranch)
     if code != 0:
       stderr.writeLine(pretty(res))
       quit(code)
@@ -79,11 +85,69 @@ proc main() =
     let res = doStrandList(repoDir, includeAll)
     echo pretty(res)
 
+  of "status":
+    var strandIdent = ""
+    var jsonOut = false
+    var i = 1
+    while i < args.len:
+      let a = args[i]
+      if a == "--json": jsonOut = true
+      elif a == "--dir" and i + 1 < args.len:
+        strandIdent = args[i+1]; inc i
+      elif a.startsWith("--dir="): strandIdent = a[6..^1]
+      elif not a.startsWith("-") and strandIdent.len == 0:
+        strandIdent = a
+      inc i
+    let (res, code) = doStrandStatus(strandIdent)
+    if jsonOut:
+      echo pretty(res)
+    else:
+      if code == 0:
+        echo "Strand Status: " & res{"task_id"}.getStr("")
+        echo "  Project       : " & res{"project"}.getStr("")
+        echo "  Branch        : " & res{"branch"}.getStr("") & " (parent: " & res{"parent_branch"}.getStr("") & ")"
+        echo "  Lifecycle     : [" & res{"lifecycle_state"}.getStr("") & "]"
+        echo "  Commits Ahead : " & $res{"commits_ahead"}.getInt(0)
+        echo "  Commits Behind: " & $res{"commits_behind"}.getInt(0)
+        echo "  Dirty Files   : " & $res{"dirty_count"}.getInt(0)
+        echo "  Strand Path   : " & res{"strand_path"}.getStr("")
+      else:
+        stderr.writeLine(pretty(res))
+    quit(code)
+
+  of "collisions", "conflicts":
+    var repoDir = ""
+    var jsonOut = false
+    var i = 1
+    while i < args.len:
+      let a = args[i]
+      if a == "--json": jsonOut = true
+      elif a == "--repo" and i + 1 < args.len:
+        repoDir = args[i+1]; inc i
+      elif a.startsWith("--repo="): repoDir = a[7..^1]
+      inc i
+    let res = doStrandCollisions(repoDir)
+    if jsonOut:
+      echo pretty(res)
+    else:
+      let cCount = res{"collision_count"}.getInt(0)
+      let sCount = res{"active_strands"}.getInt(0)
+      if cCount > 0:
+        echo "[COLLISION WARNING] " & $cCount & " potential file collision(s) detected across " & $sCount & " active strands:"
+        for c in res{"collisions"}:
+          var sNames: seq[string] = @[]
+          for s in c{"strands"}: sNames.add(s.getStr)
+          echo "  " & c{"file"}.getStr & " -> " & sNames.join(", ")
+      else:
+        echo "[CLEAN] No file collisions detected across " & $sCount & " active strand(s)."
+    quit(0)
+
   of "gate", "check":
     var branch = ""
     var baseRef = "HEAD"
     var strandDir = ""
     var skipTests = false
+    var testCmd = ""
     var jsonOut = false
     var i = 1
     while i < args.len:
@@ -94,12 +158,15 @@ proc main() =
       elif a == "--dir" and i + 1 < args.len:
         strandDir = args[i+1]; inc i
       elif a.startsWith("--dir="): strandDir = a[6..^1]
+      elif a == "--test-command" and i + 1 < args.len:
+        testCmd = args[i+1]; inc i
+      elif a.startsWith("--test-command="): testCmd = a[15..^1]
       elif a == "--skip-tests": skipTests = true
       elif a == "--json": jsonOut = true
       elif not a.startsWith("-") and branch.len == 0:
         branch = a
       inc i
-    let (res, code) = doBraidGate(branch, baseRef, strandDir, skipTests)
+    let (res, code) = doBraidGate(branch, baseRef, strandDir, skipTests, testCmd)
     if jsonOut:
       echo pretty(res)
     else:

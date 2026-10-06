@@ -11,6 +11,10 @@ proc detectTestCommand*(dir: string): string =
   if fileExists(dir / "package.json"):
     if fileExists(dir / "pnpm-lock.yaml"): return "pnpm test"
     return "npm test"
+  if fileExists(dir / "build" / "CTestTestfile.cmake"):
+    return "ctest --test-dir build --output-on-failure"
+  if fileExists(dir / "CMakePresets.json") or fileExists(dir / "CMakeLists.txt"):
+    return "ctest --test-dir build --output-on-failure"
   for kind, p in walkDir(dir):
     if kind == pcFile and p.endsWith(".nimble"): return "nimble test"
   return ""
@@ -19,7 +23,8 @@ proc doBraidGate*(
   branchParam: string = "",
   baseRefParam: string = "HEAD",
   strandDirParam: string = "",
-  skipTests: bool = false
+  skipTests: bool = false,
+  testCmdParam: string = ""
 ): tuple[output: JsonNode, exitCode: int] =
   let strandDir = if strandDirParam.len > 0: strandDirParam.normalizedPath else: getCurrentDir()
   let manifestPath = strandDir / ".vine.json"
@@ -40,6 +45,13 @@ proc doBraidGate*(
                 else: "HEAD"
 
   let cfg = loadVineConfig(findVineConfigPath(strandDir))
+
+  # Track gate evaluation in manifest if present
+  if manifest != nil:
+    manifest["status"] = %"GATE_EVALUATING"
+    manifest["lifecycle_state"] = %"GATE_EVALUATING"
+    try: writeFile(manifestPath, pretty(manifest))
+    except CatchableError: discard
 
   var res = newJObject()
   res["branch"] = %branch
@@ -65,6 +77,13 @@ proc doBraidGate*(
       let t = line.strip()
       if t.len > 0: conflictLines.add(%t)
     res["conflicts"] = conflictLines
+
+    if manifest != nil:
+      manifest["status"] = %"CONFLICTED"
+      manifest["lifecycle_state"] = %"CONFLICTED"
+      try: writeFile(manifestPath, pretty(manifest))
+      except CatchableError: discard
+
     return (res, 1)
 
   let treeSha = mtOut.strip().splitLines()[0]
@@ -73,7 +92,11 @@ proc doBraidGate*(
 
   # --- KEY 2: Live Compiler & Test Suite Gate (Anti-Green Mirage) ---
   if not skipTests:
-    let testCmd = if cfg.testCommand.len > 0: cfg.testCommand else: detectTestCommand(strandDir)
+    let manifestTestCmd = if manifest != nil and manifest.hasKey("test_command"): manifest["test_command"].getStr() else: ""
+    let testCmd = if testCmdParam.len > 0: testCmdParam
+                  elif manifestTestCmd.len > 0: manifestTestCmd
+                  elif cfg.testCommand.len > 0: cfg.testCommand
+                  else: detectTestCommand(strandDir)
     if testCmd.len > 0:
       res["test_command"] = %testCmd
       let tTest0 = getTime().toUnixFloat()
@@ -89,6 +112,13 @@ proc doBraidGate*(
         res["clean"] = %false
         res["key2_semantic"] = %"FAIL"
         res["compiler_output"] = %tOut.strip()
+
+        if manifest != nil:
+          manifest["status"] = %"GATE_FAILED"
+          manifest["lifecycle_state"] = %"GATE_FAILED"
+          try: writeFile(manifestPath, pretty(manifest))
+          except CatchableError: discard
+
         return (res, 2)
       res["key2_semantic"] = %"PASS"
     else:
@@ -102,8 +132,12 @@ proc doBraidGate*(
 
   # Update .vine.json if present
   if manifest != nil:
+    if testCmdParam.len > 0:
+      manifest["test_command"] = %testCmdParam
     manifest["status"] = %"READY_FOR_WEAVE"
+    manifest["lifecycle_state"] = %"GATE_PASSED"
     manifest["merge_tree_sha"] = %treeSha
     manifest["verified_at"] = %now().utc().format("yyyy-MM-dd'T'HH:mm:ss'Z'")
-    writeFile(manifestPath, pretty(manifest))
+    try: writeFile(manifestPath, pretty(manifest))
+    except CatchableError: discard
   return (res, 0)

@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-10-06
+
+### Added
+- **Strand Parent Branching & Lifecycle State Machine (`vine new --parent`, `vine status`)**:
+  - Added `--parent <branch>` support to `vine new` for stacked and nested branch virtualization, anchoring `intended_merge_base` and `base_commit` against primary trunk.
+  - Implemented `vine status` to inspect commits ahead/behind, metadata filtering, and real-time lifecycle states (`PROVISIONED`, `IN_PROGRESS`, `GATE_EVALUATING`, `CONFLICTED`, `GATE_FAILED`, `GATE_PASSED`, `MERGED`, `ABANDONED`).
+- **Multi-Strand Collision Forecasting (`vine collisions`)**:
+  - Implemented `vine collisions` to scan active workspaces and forecast overlapping file modifications before merge/weaving, filtering out stale, merged, and closed strands with deterministic alphabetical sorting.
+- **Enhanced Test Runner Discovery & Custom Test Commands (`vine gate`)**:
+  - Added CMake test runner detection (`CMakePresets.json` / `CMakeLists.txt` -> `ctest --test-dir build --output-on-failure`).
+  - Added `--test-command <cmd>` CLI flag to `vine gate` with manifest persistence in `.vine.json` so subsequent `vine weave` invocations inherit custom runners.
+- **Mac App Sandbox / AMFI Hardening**:
+  - Added ad-hoc macOS codesigning post-build hooks in `vine.nimble`.
+
+### Fixed
+- **Rift Mode Start-Point**: Fixed Rift strand creation ignoring `--parent` / `baseBranch` by explicitly passing the designated parent branch to `git checkout -b <branch> <parent>`.
+- **Porcelain Metadata Filtering**: Fixed porcelain status parsing index shift on unstaged files (`line[3..^1]`), preventing uncommitted `.vine.json` and `.envrc` from falsely marking strands dirty.
+- **Gate Failure Reporting**: Correctly surfaced `GATE_FAILED` lifecycle state in `vine status` instead of falling back to `IN_PROGRESS`.
+- **Manifest Persistence Error Handling**: Guarded manifest disk writes on gate pass against filesystem exceptions.
+
 ## [0.1.6] - 2026-09-30
 
 ### Fixed

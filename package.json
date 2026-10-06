@@ -1,6 +1,6 @@
 {
   "name": "@axiomantic/vine",
-  "version": "0.1.6",
+  "version": "0.2.0",
   "description": "Sub-Second APFS Copy-on-Write Workspaces & Zero-Mirage Git Weaving Engine",
   "main": "bin/run.js",
   "bin": {
