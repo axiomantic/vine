@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2026-10-07
+
+### Added
+- **Unified Work Item State Machine (WISM) Integration (Module 18)**:
+  - Embedded the full 10-state lifecycle specification and transition diagrams into `skills/vine/SKILL.md`.
+  - Added Two-Key integration gate state transitions (`GATE_EVALUATING` $\rightarrow$ `READY_TO_WEAVE` / `GATE_PASSED`) and fast-forward trunk weaving mechanics.
+
 ## [0.2.2] - 2026-10-07
 
 ### Added

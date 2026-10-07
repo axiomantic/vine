@@ -4,7 +4,7 @@
 import std/[os, strutils, json]
 import strand, gate, weave, guide, config
 
-const Version = "0.2.2"
+const Version = "0.2.3"
 
 proc printHelp() =
   echo "Vine v" & Version & " — Sub-Second APFS CoW Workspaces & Zero-Mirage Git Weaving"
