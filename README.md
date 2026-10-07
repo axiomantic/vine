@@ -16,10 +16,15 @@ Vine provides zero-drag workspace virtualization, polyglot build-cache normaliza
 
 Vine is completely standalone and can be used on its own for sub-second APFS CoW workspace cloning, `.envrc` build-cache normalization, and Two-Key gate verification on any git repository.
 
+> [!NOTE]
+> ### Quick Note: Using Garden as your High-Level Swarm Wrapper
+> **Looking for the high-level multi-agent conductor? Use [Garden](https://github.com/axiomantic/garden).**  
+> While `vine` provides isolated branch workspaces (strands) and the Two-Key Gate, **Garden** is the high-level umbrella framework. Simply start a session in your favorite coding harness (Antigravity, Claude Code, OpenCode) and type `"garden: I want to build [feature]"`. Garden conducts an intake interview, generates clean 10-backtick prompt cards for your terminal tabs, and coordinates all workers over Rhizo and Vine!
+
 However, Vine is designed from the ground up to pair seamlessly with **Rhizo** and **Garden**:
 - [**Rhizo**](https://github.com/axiomantic/rhizo) (Transport & Concurrency): Inter-agent messaging bus, monotonic fencing locks, and task queues over Redis.
 - **Vine** (Workspaces & Verification): Sub-second APFS Copy-on-Write strands, polyglot build-cache normalization, and the Two-Key integration gate (`git merge-tree` mechanical + compiler/test suite semantic checks).
-- [**Garden**](https://github.com/axiomantic/garden) (Swarm Ceremonies): Tmux worker fleet provisioning, 3-stage empirical dialectical pump (research, architecture, audit), and master ceremonial implementation planning.
+- [**Garden**](https://github.com/axiomantic/garden) (Swarm Methodology & High-Level Wrapper): Conversational project intake interview, prompt-bootstrapped worker fleets (10-backtick cards), 3-stage empirical dialectical pump (research, architecture, audit), and master ceremonial implementation planning.
 
 ## Installation
 
