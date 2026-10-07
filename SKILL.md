@@ -68,6 +68,8 @@ Context compaction purges detailed operational invariants, ceremony rules, and p
 2. **Maintain Runtime State**: Keep this exact block in the working context:
 <!-- SWARM_RUNTIME_STATE: DO NOT DISCARD OR ABBREVIATE IN COMPACTION -->
 - AGENT_NAME: <codename> (Role: <role>)
+- AGENT_ROLE: Lead Orchestrator (NON-IMPLEMENTING CONDUCTOR)
+- INTAKE_GATE: MANDATORY_ASK (Never implement directly; ask to enqueue vs dispatch vs inline)
 - WORKSPACE_MODE: Root Trunk | Strand (<path>)
 - ACTIVE_STRAND: <branch> (Parent: <parent_branch>)
 - ACTIVE_PEERS:
