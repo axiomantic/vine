@@ -72,8 +72,7 @@ proc doStrandNew*(
                         else: cfg.primaryBranch
   let baseBranch = effectiveParent
 
-  let home = getHomeDir()
-  let workspacesBase = home / "Development" / "workspaces" / projectName / taskId
+  let workspacesBase = getWorkspacesBaseDir() / projectName / taskId
   let strandDir = workspacesBase / projectName
 
   if dirExists(strandDir):
@@ -210,8 +209,7 @@ proc doStrandNew*(
 proc doStrandList*(repoDirParam: string = "", includeAll: bool = false): JsonNode =
   let repoDir = if repoDirParam.len > 0: repoDirParam.normalizedPath else: getRepoRoot()
   let projectName = repoDir.splitPath.tail
-  let home = getHomeDir()
-  let workspacesBase = home / "Development" / "workspaces"
+  let workspacesBase = getWorkspacesBaseDir()
 
   var strands = newJArray()
 
@@ -313,11 +311,11 @@ proc doStrandSync*(
   let projectName = if manifest != nil and manifest.hasKey("project"): manifest["project"].getStr()
                     else: strandDir.splitPath.tail
 
-  let home = getHomeDir()
+  let devBase = getProjectsBaseDir()
   let canonicalRepo = if manifest != nil and manifest.hasKey("canonical_repo") and dirExists(manifest["canonical_repo"].getStr()):
                         manifest["canonical_repo"].getStr()
-                      elif dirExists(home / "Development" / projectName):
-                        home / "Development" / projectName
+                      elif dirExists(devBase / projectName):
+                        devBase / projectName
                       else:
                         ""
 

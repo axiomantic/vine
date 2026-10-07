@@ -85,3 +85,13 @@ Once Two-Key Gate passes:
 vine weave
 ```
 Trunk is updated via fast-forward merge and the strand is automatically pruned.
+
+---
+
+## 4. Configuration & Manifest Reference
+
+See [`docs/configuration.md`](docs/configuration.md) for full details on:
+- **Environment Variables**: `VINE_WORKSPACES_DIR` (base strand directory), `VINE_PROJECTS_DIR`, `VINE_CONFIG`, `VINE_PRIMARY_BRANCH`, `VINE_TEST_COMMAND`, and `VINE_VENV_POLICY`.
+- **`vine.toml`**: Customizing `primary_branch`, `venv_policy` (`prompt`, `auto_yes`, `auto_no`), `vendor_dirs`, and semantic `test_command`.
+- **`.vine.json` Manifest**: Runtime state machine tracking (`PROVISIONED`, `IN_PROGRESS`, `GATE_EVALUATING`, `CONFLICTED`, `GATE_FAILED`, `GATE_PASSED`, `WEAVED`) and intended merge-base SHAs.
+

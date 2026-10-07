@@ -80,6 +80,18 @@ proc findVineConfigPath*(startDir: string = getCurrentDir()): string =
 proc findBraidConfigPath*(startDir: string = getCurrentDir()): string =
   findVineConfigPath(startDir)
 
+proc getWorkspacesBaseDir*(): string =
+  let envDir = getEnv("VINE_WORKSPACES_DIR", getEnv("VINE_WORKSPACES", ""))
+  if envDir.len > 0:
+    return envDir.normalizedPath
+  return getHomeDir() / "Development" / "workspaces"
+
+proc getProjectsBaseDir*(): string =
+  let envDir = getEnv("VINE_PROJECTS_DIR", getEnv("VINE_DEV_DIR", ""))
+  if envDir.len > 0:
+    return envDir.normalizedPath
+  return getHomeDir() / "Development"
+
 proc loadVineConfig*(configPath: string = ""): VineConfig =
   result = VineConfig(
     primaryBranch: "main",
@@ -89,27 +101,38 @@ proc loadVineConfig*(configPath: string = ""): VineConfig =
     activeConfigFile: ""
   )
 
-  let path = if configPath.len > 0: configPath else: findVineConfigPath()
-  if path.len == 0 or not fileExists(path):
-    return result
+  let envConfig = getEnv("VINE_CONFIG", "")
+  let path = if configPath.len > 0: configPath
+             elif envConfig.len > 0 and fileExists(envConfig): envConfig
+             else: findVineConfigPath()
+  if path.len > 0 and fileExists(path):
+    result.activeConfigFile = path
+    let toml = parseSimpleToml(readFile(path))
 
-  result.activeConfigFile = path
-  let toml = parseSimpleToml(readFile(path))
+    for secName, dict in toml:
+      for k, v in dict:
+        let low = k.toLowerAscii.replace("-", "_")
+        case low
+        of "primary_branch", "primarybranch", "main_branch", "default_branch":
+          if v.len > 0: result.primaryBranch = v
+        of "venv_policy", "venvpolicy":
+          if v.len > 0: result.venvPolicy = v.toLowerAscii
+        of "vendor_dirs", "vendordirs":
+          if v.len > 0: result.vendorDirs = parseStringList(v)
+        of "test_command", "testcommand", "build_command":
+          if v.len > 0: result.testCommand = v
+        else:
+          discard
 
-  for secName, dict in toml:
-    for k, v in dict:
-      let low = k.toLowerAscii.replace("-", "_")
-      case low
-      of "primary_branch", "primarybranch", "main_branch", "default_branch":
-        if v.len > 0: result.primaryBranch = v
-      of "venv_policy", "venvpolicy":
-        if v.len > 0: result.venvPolicy = v.toLowerAscii
-      of "vendor_dirs", "vendordirs":
-        if v.len > 0: result.vendorDirs = parseStringList(v)
-      of "test_command", "testcommand", "build_command":
-        if v.len > 0: result.testCommand = v
-      else:
-        discard
+  # Environment variable overrides (highest precedence)
+  let envPrimary = getEnv("VINE_PRIMARY_BRANCH", "")
+  if envPrimary.len > 0: result.primaryBranch = envPrimary
+
+  let envTest = getEnv("VINE_TEST_COMMAND", "")
+  if envTest.len > 0: result.testCommand = envTest
+
+  let envVenv = getEnv("VINE_VENV_POLICY", "")
+  if envVenv.len > 0: result.venvPolicy = envVenv.toLowerAscii
 
 proc loadBraidConfig*(configPath: string = ""): BraidConfig =
   loadVineConfig(configPath)

@@ -3,6 +3,7 @@
 
 import std/[os, osproc, strutils, json]
 import gate
+import config
 
 proc doBraidWeave*(
   branchParam: string = "",
@@ -45,10 +46,11 @@ proc doBraidWeave*(
                     else: strandDir.splitPath.tail
 
   let home = getHomeDir()
+  let devBase = getProjectsBaseDir()
   let canonicalRepo = if manifest != nil and manifest.hasKey("canonical_repo") and dirExists(manifest["canonical_repo"].getStr()):
                         manifest["canonical_repo"].getStr()
-                      elif dirExists(home / "Development" / projectName):
-                        home / "Development" / projectName
+                      elif dirExists(devBase / projectName):
+                        devBase / projectName
                       else:
                         ""
 
@@ -96,7 +98,8 @@ proc doBraidWeave*(
 
   try:
     let parent = strandDir.parentDir()
-    if dirExists(parent) and parent != home and parent != home / "Development":
+    let wsBase = getWorkspacesBaseDir()
+    if dirExists(parent) and parent != home and parent != devBase and parent != wsBase:
       removeDir(parent)
   except CatchableError: discard
 

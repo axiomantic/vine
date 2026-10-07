@@ -13,9 +13,12 @@ from pathlib import Path
 _bin_name = "vine.exe" if sys.platform == "win32" or (Path(__file__).parent.parent / "bin" / "vine.exe").exists() else "vine"
 VINE_BIN = Path(__file__).parent.parent / "bin" / _bin_name
 
-def run_vine(*args, cwd=None):
+def run_vine(*args, cwd=None, env=None):
     cmd = [str(VINE_BIN)] + list(args)
-    proc = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd)
+    proc_env = os.environ.copy()
+    if env:
+        proc_env.update(env)
+    proc = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd, env=proc_env)
     return proc.returncode, proc.stdout, proc.stderr
 
 PACKAGE_JSON = Path(__file__).parent.parent / "package.json"
@@ -679,5 +682,53 @@ def test_vine_cmake_test_runner_detection():
                 subprocess.run(["git", "-C", repo_dir, "worktree", "prune"], capture_output=True)
                 shutil.rmtree(os.path.dirname(os.path.dirname(strand_path)), ignore_errors=True)
 
+def test_vine_environment_variable_precedence():
+    """Verify VINE_* environment variables override config files and defaults."""
+    with tempfile.TemporaryDirectory(prefix="vine_env_test_") as tmpdir:
+        # 1. Test VINE_CONFIG pointing to custom path
+        custom_toml = Path(tmpdir) / "custom_vine.toml"
+        custom_toml.write_text("""[project]
+primary_branch = "trunk"
+[strand]
+venv_policy = "always"
+[verification]
+test_command = "cargo test"
+""")
+        code, out, _ = run_vine("config", "show", env={"VINE_CONFIG": str(custom_toml)}, cwd=tmpdir)
+        assert code == 0
+        data = json.loads(out)
+        assert data["primary_branch"] == "trunk"
+        assert data["venv_policy"] == "always"
+        assert data["test_command"] == "cargo test"
 
+        # 2. Test VINE_PRIMARY_BRANCH and VINE_TEST_COMMAND direct overrides
+        overrides = {
+            "VINE_CONFIG": str(custom_toml),
+            "VINE_PRIMARY_BRANCH": "production",
+            "VINE_TEST_COMMAND": "nimble test",
+            "VINE_VENV_POLICY": "never",
+        }
+        code2, out2, _ = run_vine("config", "show", env=overrides, cwd=tmpdir)
+        assert code2 == 0
+        data2 = json.loads(out2)
+        assert data2["primary_branch"] == "production"
+        assert data2["test_command"] == "nimble test"
+        assert data2["venv_policy"] == "never"
 
+        # 3. Test VINE_WORKSPACES_DIR overrides default workspace creation location
+        custom_ws = Path(tmpdir) / "custom_workspaces"
+        repo_dir = Path(tmpdir) / "repo"
+        repo_dir.mkdir()
+        subprocess.run(["git", "init", "-b", "main", "-q", str(repo_dir)], check=True)
+        subprocess.run(["git", "-C", str(repo_dir), "config", "user.email", "agent@vine.mesh"], check=True)
+        subprocess.run(["git", "-C", str(repo_dir), "config", "user.name", "Vine Agent"], check=True)
+        (repo_dir / "README.md").write_text("# Test\n")
+        subprocess.run(["git", "-C", str(repo_dir), "add", "README.md"], check=True)
+        subprocess.run(["git", "-C", str(repo_dir), "commit", "-q", "-m", "init"], check=True)
+
+        task_id = f"task-ws-{int(time.time() * 1000)}"
+        code3, out3, _ = run_vine("new", task_id, "--repo", str(repo_dir), "--branch", f"strand/{task_id}", "--worktree", env={"VINE_WORKSPACES_DIR": str(custom_ws)})
+        assert code3 == 0
+        data3 = json.loads(out3)
+        assert str(custom_ws) in data3["strand_path"]
+        assert Path(data3["strand_path"]).exists()

@@ -70,13 +70,70 @@ vine guide install
 
 ```bash
 # Spin up an isolated strand for a task
-vine new T-1049 --repo ~/Development/PebbleOS --branch feat/display-driver
+vine new task-1049 --repo ~/Development/PebbleOS --branch feat/display-driver
+
+# Inspect dynamic strand lifecycle and commit delta
+vine status --json
+
+# Forecast cross-strand file footprint overlap before conflicts happen
+vine collisions
+
+# Reconcile upstream canonical trunk changes into strand
+vine sync
 
 # Verify mechanical and semantic correctness inside the strand
 vine gate
 
-# Weave clean strand into canonical branch
+# Weave clean strand into canonical trunk
 vine weave
+
+# Prune completed or merged strands
+vine prune --apply
+```
+
+## CLI Reference
+
+| Command | Arguments | Description |
+| :--- | :--- | :--- |
+| `vine new <task_id>` | `[--repo <dir>] [--branch <name>] [--parent <branch>] [--worktree]` | Provision an isolated CoW strand or git worktree. |
+| `vine list` | `[--repo <dir>] [--all] [--json]` | List active strands, branches, and status across projects. |
+| `vine status` | `[<strand>] [--dir <path>] [--json]` | Inspect deep lifecycle state (`PROVISIONED`, `IN_PROGRESS`, `GATE_PASSED`, etc.) and commits ahead/behind. |
+| `vine collisions` | `[--repo <dir>] [--json]` | Forecast file-footprint overlaps across concurrent worker strands. |
+| `vine sync` | `[--dir <path>] [--base <branch>]` | Fast-forward or merge upstream trunk changes cleanly into strand. |
+| `vine gate` | `[--dir <path>] [--base <branch>] [--test-command <cmd>] [--skip-tests]` | Run Two-Key Gate: Key 1 mechanical pre-check and Key 2 semantic compiler/test suite. |
+| `vine weave` | `[--dir <path>] [--base <branch>] [--force]` | Fast-forward merge verified strand into canonical trunk and prune. |
+| `vine prune` | `[--repo <dir>] [--apply]` | Remove inactive or completed strands (dry-run by default). |
+| `vine config <init\|show>`| `[--json]` | Scaffold or display project `vine.toml` configuration. |
+| `vine guide <install\|check\|uninstall>` | `[path]` | Install or manage Vine Coordination Guide in `AGENTS.md`. |
+
+## Configuration & Environment Variables
+
+> [!TIP]
+> For the complete specification of `vine.toml`, `.vine.json` runtime state schemas, and environment variables, see the [Vine Configuration & Manifest Reference](docs/configuration.md).
+
+Vine provides zero-config defaults that can be customized via `vine.toml` or environment variables:
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `VINE_WORKSPACES_DIR` | `~/Development/workspaces` | Base directory where isolated strands are provisioned. |
+| `VINE_PROJECTS_DIR` | `~/Development` | Base directory where canonical repositories reside. |
+| `VINE_CONFIG` | *Auto-discovered* | Explicit path to project `vine.toml`. |
+| `VINE_PRIMARY_BRANCH` | `main` | Default target branch for gate checks and merges. |
+| `VINE_TEST_COMMAND` | *Auto-detected* | Custom test/compiler runner for Key 2 semantic gate check. |
+| `VINE_VENV_POLICY` | `prompt` | Virtual environment copy policy (`prompt`, `auto_yes`, `auto_no`). |
+
+### Example `vine.toml`
+
+```toml
+[project]
+primary_branch = "main"
+
+[strand]
+venv_policy = "prompt"
+vendor_dirs = ["deps", "node_modules", "vendor", ".zig-cache"]
+
+[verification]
+test_command = "pytest -v tests/"
 ```
 
 ## Multi-Agent Triad Workflow
@@ -85,7 +142,7 @@ When orchestrating teams of multiple AI assistants operating simultaneously acro
 
 - **Distributed Mutexes & Fencing**: Use `rhizo lock file:<path> --fencing` to prevent concurrent collisions on non-mergeable schema files or migrations.
 - **Synchronized Task Queues**: Agents claim work via `rhizo claim queue:<project>:tasks --lease 1800` and report status back over the Redis bus.
-- **Full Ceremony Conduct**: Use `garden` to direct persona deliberations, tmux worker fleets, and master plans.
+- **Full Ceremony Conduct**: Use `garden` to direct persona deliberations, generate 10-backtick worker prompt cards, and drive implementation plans.
 - **Zero Dirty Commits**: Rhizo, Vine, and Garden enforce complete decoupling of agent identity from directory paths.
 
 ## Repository Guide Integration

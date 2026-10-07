@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-10-06
+
+### Added
+- **Environment Variable Overrides & Precedence**:
+  - Added support for `VINE_WORKSPACES_DIR` (and `VINE_WORKSPACES`) to customize the base directory where strands and worktrees are provisioned.
+  - Added support for `VINE_PROJECTS_DIR` (and `VINE_DEV_DIR`) to locate canonical parent repositories.
+  - Added `VINE_CONFIG`, `VINE_PRIMARY_BRANCH`, `VINE_TEST_COMMAND`, and `VINE_VENV_POLICY` environment variable overrides with highest priority over `vine.toml`.
+- **Comprehensive Configuration & Manifest Documentation**:
+  - Authored `docs/configuration.md`: Comprehensive reference table for all `VINE_*` environment variables, `vine.toml` keys (`primary_branch`, `venv_policy`, `vendor_dirs`, `test_command`), and `.vine.json` runtime manifest specification.
+- **Enhanced Test Coverage**:
+  - Added `test_vine_environment_variable_precedence` in `tests/test_vine.py` covering config overrides, custom paths, and workspace base directory relocation.
+
 ## [0.2.0] - 2026-10-06
 
 ### Added
