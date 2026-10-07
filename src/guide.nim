@@ -5,13 +5,13 @@
 import std/[os, strutils]
 
 const
-  GuideVersion* = "v1.0"
+  GuideVersion* = "v1.1"
   BeginMarker* = "<!-- BEGIN VINE GUIDE [" & GuideVersion & "] -->"
   EndMarker* = "<!-- END VINE GUIDE -->"
   MarkerPrefix* = "<!-- BEGIN VINE GUIDE"
 
 const CanonicalGuideContent* = """
-<!-- BEGIN VINE GUIDE [v1.0] -->
+<!-- BEGIN VINE GUIDE [v1.1] -->
 <!-- DO NOT EDIT DIRECTLY: Managed by `vine guide install` -->
 
 ## Vine Workspace & Strand Coordination Guide
@@ -29,6 +29,8 @@ npm install -g @axiomantic/rhizo @axiomantic/vine
   Agent identity is strictly decoupled from directory paths. Never create or read `.rhizo.agent` or `.vine.agent` in any project or strand directory.
 * **Zero Dirty Commits**:
   All strand state, lockfiles, temporary buffers, and manifests must be ignored in `~/.gitignore_global` or `.git/info/exclude`. Never stage or commit coordination metadata (`.vine.json`, `workspaces/`).
+* **Post-Compaction Ceremony Restoration**:
+  Whenever context compaction occurs in a session that used Vine (or Rhizo/Garden), the compaction summary MUST include the mandatory directive commanding the resurrected agent to re-read `vine` (and `rhizo`/`garden` if active) and inspect active strands before touching canonical trunk files. This directive must remain intact across all future compactions.
 * **Compaction Recovery**:
   Whenever starting a session or recovering from context compaction, inspect active strands before editing canonical files:
   ```bash

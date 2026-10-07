@@ -45,7 +45,7 @@ def test_vine_guide_lifecycle():
         assert target.exists()
 
         content = target.read_text()
-        assert "<!-- BEGIN VINE GUIDE [v1.0] -->" in content
+        assert "<!-- BEGIN VINE GUIDE [v1.1] -->" in content
         assert "<!-- END VINE GUIDE -->" in content
         assert "Vine Workspace & Strand Coordination Guide" in content
 
