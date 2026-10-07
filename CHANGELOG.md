@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-10-07
+
+### Added
+- **Post-Compaction Ceremony Restoration Invariant (GVR-010)**:
+  - Mandated preservation of `SWARM_RUNTIME_STATE` and immediate re-reading of coordination skills (`vine`, `rhizo`, `garden`) upon agent resurrection following context compaction.
+  - Mandated active strand inspection (`vine list`) before touching canonical trunk files.
+- **Vine Coordination Guide v1.1**:
+  - Upgraded canonical guide in `src/guide.nim` and `AGENTS.md` across repositories to formalize post-compaction ceremony recovery.
+
 ## [0.2.1] - 2026-10-06
 
 ### Added
