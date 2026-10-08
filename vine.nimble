@@ -1,7 +1,7 @@
 # Package
 version       = "0.2.3"
 author        = "Axiomantic"
-description   = "Sub-Second APFS CoW Workspaces & Zero-Mirage Git Weaving Engine"
+description   = "Zero-Cost Rift CoW Workspaces & Zero-Mirage Git Weaving Engine"
 license       = "MIT"
 srcDir        = "src"
 bin           = @["vine"]

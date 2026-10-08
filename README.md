@@ -1,12 +1,12 @@
 # Vine
 
-**Sub-Second APFS Copy-on-Write Workspaces & Zero-Mirage Git Weaving for Autonomous AI Agents**
+**Zero-Cost Rift Copy-on-Write Workspaces & Zero-Mirage Git Weaving for Autonomous AI Agents**
 
 Vine provides zero-drag workspace virtualization, polyglot build-cache normalization, and mechanical + semantic verification gates for parallel AI coding agents.
 
 ## Core Concepts
 
-- **Strands**: Instantaneous APFS copy-on-write workspace clones (`vine new <task_id>`). Uses `anomalyco/rift` for submoduled repositories (in ~9s with 0 extra blocks) and `git worktree` for monolithic repos (in ~280ms).
+- **Strands**: Instantaneous Rift copy-on-write workspace clones (`vine new <task_id>`). Uses `rift` for zero-cost snapshot cloning (in ~9s with 0 extra disk blocks) and `git worktree` for monolithic fallback (in ~280ms).
 - **Universal CoW Vendoring**: Clones dependency caches (`deps`, `node_modules`, `vendor`) in <80ms without physical disk duplication.
 - **Polyglot Build Cache Layer**: Auto-activates non-destructive `.envrc` normalizing `ccache`, `sccache`, `uv` clone mode, and `nimcache`.
 - **The Two-Key Gate**: Ensures zero "Green Mirage" by requiring both Key 1 (in-memory mechanical `git merge-tree` exit 0) and Key 2 (live compiler & test suite exit 0).
@@ -14,7 +14,7 @@ Vine provides zero-drag workspace virtualization, polyglot build-cache normaliza
 
 ## Standalone Yet Designed for the Axiomantic Triad
 
-Vine is completely standalone and can be used on its own for sub-second APFS CoW workspace cloning, `.envrc` build-cache normalization, and Two-Key gate verification on any git repository.
+Vine is completely standalone and can be used on its own for zero-cost Rift copy-on-write workspace cloning, `.envrc` build-cache normalization, and Two-Key gate verification on any git repository.
 
 > [!NOTE]
 > ### Quick Note: Using Garden as your High-Level Swarm Wrapper
@@ -23,7 +23,7 @@ Vine is completely standalone and can be used on its own for sub-second APFS CoW
 
 However, Vine is designed from the ground up to pair seamlessly with **Rhizo** and **Garden**:
 - [**Rhizo**](https://github.com/axiomantic/rhizo) (Transport & Concurrency): Inter-agent messaging bus, monotonic fencing locks, and task queues over Redis.
-- **Vine** (Workspaces & Verification): Sub-second APFS Copy-on-Write strands, polyglot build-cache normalization, and the Two-Key integration gate (`git merge-tree` mechanical + compiler/test suite semantic checks).
+- **Vine** (Workspaces & Verification): Zero-cost Rift copy-on-write strands, polyglot build-cache normalization, and the Two-Key integration gate (`git merge-tree` mechanical + compiler/test suite semantic checks).
 - [**Garden**](https://github.com/axiomantic/garden) (Swarm Methodology & High-Level Wrapper): Conversational project intake interview, prompt-bootstrapped worker fleets (10-backtick cards), 3-stage empirical dialectical pump (research, architecture, audit), and master ceremonial implementation planning.
 
 ## Installation
@@ -52,10 +52,10 @@ Install the compiled CLI tools directly onto your `$PATH`:
 
 ```bash
 # Install all three tools:
-npm install -g @axiomantic/rhizo @axiomantic/vine @axiomantic/garden
+npm install -g @axiomantic/rhizo @axiomantic/vine @axiomantic/garden rift-snapshot
 
 # Or install Vine alone:
-npm install -g @axiomantic/vine
+npm install -g @axiomantic/vine rift-snapshot
 ```
 
 > [!TIP]
@@ -100,7 +100,7 @@ vine prune --apply
 
 | Command | Arguments | Description |
 | :--- | :--- | :--- |
-| `vine new <task_id>` | `[--repo <dir>] [--branch <name>] [--parent <branch>] [--worktree]` | Provision an isolated CoW strand or git worktree. |
+| `vine new <task_id>` | `[--repo <dir>] [--branch <name>] [--parent <branch>] [--worktree]` | Provision an isolated Rift CoW strand or git worktree. |
 | `vine list` | `[--repo <dir>] [--all] [--json]` | List active strands, branches, and status across projects. |
 | `vine status` | `[<strand>] [--dir <path>] [--json]` | Inspect deep lifecycle state (`PROVISIONED`, `IN_PROGRESS`, `GATE_PASSED`, etc.) and commits ahead/behind. |
 | `vine collisions` | `[--repo <dir>] [--json]` | Forecast file-footprint overlaps across concurrent worker strands. |
