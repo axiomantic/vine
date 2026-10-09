@@ -5,13 +5,13 @@
 import std/[os, strutils]
 
 const
-  GuideVersion* = "v1.1"
+  GuideVersion* = "v1.2"
   BeginMarker* = "<!-- BEGIN VINE GUIDE [" & GuideVersion & "] -->"
   EndMarker* = "<!-- END VINE GUIDE -->"
   MarkerPrefix* = "<!-- BEGIN VINE GUIDE"
 
 const CanonicalGuideContent* = """
-<!-- BEGIN VINE GUIDE [v1.1] -->
+<!-- BEGIN VINE GUIDE [v1.2] -->
 <!-- DO NOT EDIT DIRECTLY: Managed by `vine guide install` -->
 
 ## Vine Workspace & Strand Coordination Guide
@@ -25,6 +25,8 @@ npm install -g @axiomantic/rhizo @axiomantic/vine
 ```
 
 ### 1. Invariants & Strand Identity
+* **Sovereign Worker Allocation**:
+  Workspaces (Strands) are allocated strictly 1:1 to sovereign, dedicated worker sessions. Never assign harness-internal subagents to strand directories to prevent git index contention and lifecycle premature termination.
 * **No Workspace-Scoped Identity Files**:
   Agent identity is strictly decoupled from directory paths. Never create or read `.rhizo.agent` or `.vine.agent` in any project or strand directory.
 * **Zero Dirty Commits**:
@@ -44,7 +46,7 @@ npm install -g @axiomantic/rhizo @axiomantic/vine
 * **Spin an Isolated Strand when**:
   - The repository contains Git submodules (e.g., PebbleOS).
   - The task requires complex, multi-file refactoring or high risk of breaking `main`.
-  - Parallel subagents or assistants are operating simultaneously on different tasks.
+  - Parallel workers or assistants are operating simultaneously on different tasks.
 * **Work Directly in Trunk when**:
   - The task is a trivial 1-file documentation fix, typo correction, or minor configuration tweak.
 

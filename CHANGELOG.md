@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2026-10-09
+
+### Added
+- **Sovereign Worker Allocation Invariant (Vine Guide v1.2)**:
+  - Formally established the Sovereign Worker Allocation Invariant: workspaces (Strands) are allocated strictly 1:1 to sovereign, dedicated worker sessions.
+  - Prohibited assignment of ephemeral harness-internal subagents to strand directories to prevent git index lock contention and cache corruption.
+  - Synchronized complete WISM state diagrams across `SKILL.md` and `skills/vine/SKILL.md`.
+  - Bumped `GuideVersion` to `v1.2` and updated `tests/test_vine.py`.
+
 ## [0.2.3] - 2026-10-07
 
 ### Added

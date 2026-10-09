@@ -1,6 +1,6 @@
 {
   "name": "@axiomantic/vine",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Zero-Cost Rift Copy-on-Write Workspaces & Zero-Mirage Git Weaving Engine",
   "main": "bin/run.js",
   "bin": {
