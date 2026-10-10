@@ -521,6 +521,21 @@ def test_vine_gate_custom_test_command():
             assert f_data["clean"] is False
             assert f_data["key2_semantic"] == "FAIL"
             assert "Synthetic test failure" in f_data["compiler_output"]
+
+            # 3. Custom passing test command via '--' delimiter
+            g_code, g_out, g_err = run_vine("gate", "--dir", strand_path, "--base", "main", "--json", "--", sys.executable, "-c", 'import sys; print("Passing via double dash"); sys.exit(0)')
+            assert g_code == 0, f"Expected gate pass via --: {g_err}\nOut: {g_out}"
+            g_data = json.loads(g_out)
+            assert g_data["clean"] is True
+            assert g_data["key2_semantic"] == "PASS"
+
+            # 4. Custom failing test command via '--' delimiter
+            f_code, f_out, f_err = run_vine("gate", "--dir", strand_path, "--base", "main", "--json", "--", sys.executable, "-c", 'import sys; sys.stderr.write("Synthetic failure via double dash"); sys.exit(42)')
+            assert f_code == 2, f"Expected gate semantic failure via --, got {f_code}\nOut: {f_out}"
+            f_data = json.loads(f_out)
+            assert f_data["clean"] is False
+            assert f_data["key2_semantic"] == "FAIL"
+            assert "Synthetic failure via double dash" in f_data["compiler_output"]
         finally:
             if os.path.exists(strand_path):
                 subprocess.run(["git", "-C", repo_dir, "worktree", "remove", "--force", strand_path], capture_output=True)

@@ -105,7 +105,7 @@ vine prune --apply
 | `vine status` | `[<strand>] [--dir <path>] [--json]` | Inspect deep lifecycle state (`PROVISIONED`, `IN_PROGRESS`, `GATE_PASSED`, etc.) and commits ahead/behind. |
 | `vine collisions` | `[--repo <dir>] [--json]` | Forecast file-footprint overlaps across concurrent worker strands. |
 | `vine sync` | `[--dir <path>] [--base <branch>]` | Fast-forward or merge upstream trunk changes cleanly into strand. |
-| `vine gate` | `[--dir <path>] [--base <branch>] [--test-command <cmd>] [--skip-tests]` | Run Two-Key Gate: Key 1 mechanical pre-check and Key 2 semantic compiler/test suite. |
+| `vine gate` | `[--dir <path>] [--base <branch>] [--skip-tests] [-- <command...>]` | Run Two-Key Gate: Key 1 mechanical pre-check and Key 2 semantic test suite (`-- <cmd...>` or `--test-command <cmd>`). |
 | `vine weave` | `[--dir <path>] [--base <branch>] [--force]` | Fast-forward merge verified strand into canonical trunk and prune. |
 | `vine prune` | `[--repo <dir>] [--apply]` | Remove inactive or completed strands (dry-run by default). |
 | `vine config <init\|show>`| `[--json]` | Scaffold or display project `vine.toml` configuration. |

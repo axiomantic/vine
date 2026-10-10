@@ -1,10 +1,10 @@
 # /Users/eek/Development/vine/src/vine.nim
 # Vine — Sub-Second APFS CoW Workspaces & Zero-Mirage Git Weaving Engine.
 
-import std/[os, strutils, json]
+import std/[os, strutils, json, sequtils]
 import strand, gate, weave, guide, config
 
-const Version = "0.2.4"
+const Version = "0.2.5"
 
 proc printHelp() =
   echo "Vine v" & Version & " — Sub-Second APFS CoW Workspaces & Zero-Mirage Git Weaving"
@@ -14,7 +14,7 @@ proc printHelp() =
   echo "  vine list [--repo <path>] [--all]"
   echo "  vine status [task_id|path] [--dir <path>] [--json]"
   echo "  vine collisions [--repo <path>] [--json]"
-  echo "  vine gate [branch] [--base <ref>] [--dir <path>] [--skip-tests] [--test-command <cmd>] [--json]"
+  echo "  vine gate [branch] [--base <ref>] [--dir <path>] [--skip-tests] [--test-command <cmd>] [--json] [-- <command...>]"
   echo "  vine sync [--dir <path>] [--base <ref>] [--rebase]"
   echo "  vine weave [branch] [--base <ref>] [--dir <path>] [--force]"
   echo "  vine prune [--repo <path>] [--max-age <hours>] [--apply]"
@@ -152,7 +152,11 @@ proc main() =
     var i = 1
     while i < args.len:
       let a = args[i]
-      if a == "--base" and i + 1 < args.len:
+      if a == "--":
+        if i + 1 < args.len:
+          testCmd = args[i+1..^1].map(quoteShell).join(" ")
+        break
+      elif a == "--base" and i + 1 < args.len:
         baseRef = args[i+1]; inc i
       elif a.startsWith("--base="): baseRef = a[7..^1]
       elif a == "--dir" and i + 1 < args.len:

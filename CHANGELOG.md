@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2026-10-10
+
+### Added
+- **POSIX Double-Dash End-of-Options Custom Runner Pattern (`vine gate -- <command...>`)**:
+  - Added support for `-- <command...>` in `vine gate` (and `vine check`) to cleanly specify custom compiler and test runner commands without nested quotation or escaping.
+  - Automatically joins and shell-quotes trailing `argv` parameters, eliminating JSON string escaping errors in autonomous agent harnesses.
+  - Retained `--test-command <cmd>` as a backwards-compatible option.
+  - Added test coverage in `tests/test_vine.py` for passing and failing custom test suites invoked via `--`.
+
 ## [0.2.4] - 2026-10-09
 
 ### Added
