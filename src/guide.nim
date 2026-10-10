@@ -5,13 +5,13 @@
 import std/[os, strutils]
 
 const
-  GuideVersion* = "v1.2"
+  GuideVersion* = "v1.3"
   BeginMarker* = "<!-- BEGIN VINE GUIDE [" & GuideVersion & "] -->"
   EndMarker* = "<!-- END VINE GUIDE -->"
   MarkerPrefix* = "<!-- BEGIN VINE GUIDE"
 
 const CanonicalGuideContent* = """
-<!-- BEGIN VINE GUIDE [v1.2] -->
+<!-- BEGIN VINE GUIDE [v1.3] -->
 <!-- DO NOT EDIT DIRECTLY: Managed by `vine guide install` -->
 
 ## Vine Workspace & Strand Coordination Guide
@@ -166,8 +166,10 @@ git merge-tree --write-tree "$BASE_BRANCH" HEAD
 #### Key 2: Live Compiler & Test Suite Gate (Zero Green Mirage)
 Execute the project's actual build and test suite inside the Strand:
 ```bash
-# Inferred or from vine.toml [verification] test_command:
-$BUILD_AND_TEST_COMMAND
+# Inferred from project or configured in vine.toml:
+vine gate
+# Or with explicit custom test runner using POSIX double-dash:
+vine gate -- <custom-test-command>
 ```
 *Never bypass this gate. `git merge-tree` only verifies text mergeability, not compilation or semantic correctness.*
 
