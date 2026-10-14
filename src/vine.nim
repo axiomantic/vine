@@ -4,7 +4,7 @@
 import std/[os, strutils, json, sequtils]
 import strand, gate, weave, guide, config
 
-const Version = "0.2.5"
+const Version = "0.2.6"
 
 proc printHelp() =
   echo "Vine v" & Version & " — Sub-Second APFS CoW Workspaces & Zero-Mirage Git Weaving"
@@ -46,6 +46,8 @@ proc main() =
     var branch = ""
     var baseRef = "HEAD"
     var parentBranch = ""
+    var workerName = ""
+    var orchName = ""
     var forceRift = false
     var forceWorktree = false
     var i = 2
@@ -63,10 +65,16 @@ proc main() =
       elif a == "--parent" and i + 1 < args.len:
         parentBranch = args[i+1]; inc i
       elif a.startsWith("--parent="): parentBranch = a[9..^1]
+      elif a == "--worker" and i + 1 < args.len:
+        workerName = args[i+1]; inc i
+      elif a.startsWith("--worker="): workerName = a[9..^1]
+      elif a == "--orchestrator" and i + 1 < args.len:
+        orchName = args[i+1]; inc i
+      elif a.startsWith("--orchestrator="): orchName = a[15..^1]
       elif a == "--rift": forceRift = true
       elif a == "--worktree": forceWorktree = true
       inc i
-    let (res, code) = doStrandNew(taskId, repoDir, branch, baseRef, forceRift, forceWorktree, parentBranch)
+    let (res, code) = doStrandNew(taskId, repoDir, branch, baseRef, forceRift, forceWorktree, parentBranch, workerName, orchName)
     if code != 0:
       stderr.writeLine(pretty(res))
       quit(code)

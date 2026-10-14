@@ -747,3 +747,20 @@ test_command = "cargo test"
         data3 = json.loads(out3)
         assert str(custom_ws) in data3["strand_path"]
         assert Path(data3["strand_path"]).exists()
+
+if __name__ == "__main__":
+    import inspect
+    import traceback
+    tests = [obj for name, obj in inspect.getmembers(sys.modules[__name__]) if inspect.isfunction(obj) and name.startswith("test_")]
+    passed = 0
+    failed = 0
+    for test in tests:
+        try:
+            test()
+            print(f"PASS: {test.__name__}")
+            passed += 1
+        except Exception as e:
+            print(f"FAIL: {test.__name__}:\n{traceback.format_exc()}")
+            failed += 1
+    print(f"\n{passed} passed, {failed} failed")
+    sys.exit(1 if failed else 0)

@@ -60,7 +60,9 @@ proc doStrandNew*(
   baseRef: string = "HEAD",
   forceRift: bool = false,
   forceWorktree: bool = false,
-  parentBranch: string = ""
+  parentBranch: string = "",
+  workerParam: string = "",
+  orchestratorParam: string = ""
 ): tuple[manifest: JsonNode, exitCode: int] =
   let repoDir = if repoDirParam.len > 0: repoDirParam.normalizedPath else: getRepoRoot()
   let projectName = repoDir.splitPath.tail
@@ -176,6 +178,28 @@ proc doStrandNew*(
   let baseCommit = if bcCode == 0 and bcOut.strip().len > 0: bcOut.strip() else: getHeadCommit(repoDir)
   let (mbOut, mbCode) = execCmdEx("git -C " & quoteShell(repoDir) & " merge-base " & quoteShell(baseBranch) & " " & quoteShell(cfg.primaryBranch))
   let intendedMergeBase = if mbCode == 0 and mbOut.strip().len > 0: mbOut.strip() else: baseCommit
+  let effectiveWorker = if workerParam.len > 0: workerParam
+                        else: getEnv("RHIZO_AGENT_NAME", "")
+  let effectiveOrch = if orchestratorParam.len > 0: orchestratorParam
+                      elif getEnv("GARDEN_ORCHESTRATOR", "").len > 0: getEnv("GARDEN_ORCHESTRATOR", "")
+                      else: projectName & "-orchestrator"
+
+  # Write .vine/strand.json identity attestation file
+  try:
+    createDir(strandDir / ".vine")
+    let strandIdentity = %*{
+      "task_id": taskId,
+      "project": projectName,
+      "strand_path": strandDir,
+      "branch": branch,
+      "worker": effectiveWorker,
+      "orchestrator": effectiveOrch,
+      "created_at": now().utc().format("yyyy-MM-dd'T'HH:mm:ss'Z'")
+    }
+    writeFile(strandDir / ".vine" / "strand.json", pretty(strandIdentity))
+  except CatchableError:
+    discard
+
   let manifest = %*{
     "task_id": taskId,
     "project": projectName,
@@ -186,6 +210,8 @@ proc doStrandNew*(
     "parent_branch": baseBranch,
     "base_commit": baseCommit,
     "intended_merge_base": intendedMergeBase,
+    "worker": effectiveWorker,
+    "orchestrator": effectiveOrch,
     "status": "PROVISIONED",
     "lifecycle_state": "PROVISIONED",
     "created_at": now().utc().format("yyyy-MM-dd'T'HH:mm:ss'Z'"),
@@ -203,6 +229,8 @@ proc doStrandNew*(
   res["base_branch"] = %baseBranch
   res["base_commit"] = %baseCommit
   res["intended_merge_base"] = %intendedMergeBase
+  res["worker"] = %effectiveWorker
+  res["orchestrator"] = %effectiveOrch
   res["tool"] = %toolUsed
   return (res, 0)
 
@@ -428,7 +456,7 @@ proc doStrandStatus*(strandDirOrId: string = ""): tuple[status: JsonNode, exitCo
     for line in stOut.splitLines():
       if line.len >= 3:
         let filePath = line[3..^1].strip()
-        if filePath in [".vine.json", ".envrc", ".venv", ".git"] or filePath.startsWith(".vine."):
+        if filePath in [".vine.json", ".envrc", ".venv", ".git", ".vine"] or filePath.startsWith(".vine.") or filePath.startsWith(".vine/"):
           continue
         dirtyFiles.add(%line.strip())
 

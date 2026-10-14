@@ -12,6 +12,22 @@ Vine provides zero-drag workspace virtualization, polyglot build-cache normaliza
 - **The Two-Key Gate**: Ensures zero "Green Mirage" by requiring both Key 1 (in-memory mechanical `git merge-tree` exit 0) and Key 2 (live compiler & test suite exit 0).
 - **Weaving**: Fast-forwards verified strands back into the canonical trunk (`vine weave`).
 
+---
+
+## Documentation for Humans & AI Agents
+
+Vine provides comprehensive workspace, gate, and build cache specifications:
+
+### Core Protocols & Architecture
+* **[Strand Lifecycle Specification](docs/strand_lifecycle.md)**: Zero-cost APFS Copy-on-Write strands, directory isolation, `.vine.json` runtime manifest, and collision detection.
+* **[Two-Key Gate Specification](docs/two_key_gate.md)**: Zero "Green Mirage" philosophy, Key 1 mechanical merge-tree + Key 2 live test discovery cascade and cryptographic gate tokens.
+* **[Polyglot Build Cache Normalization](docs/cache_normalization.md)**: Non-destructive `.envrc` chaining, Ccache, Cargo target, uv clone links, and Nimcache unification.
+* **[CLI Reference Manual](docs/cli_reference.md)**: Complete catalog of all Vine commands (`new`, `status`, `collisions`, `gate`, `weave`, `list`, `sync`, `prune`).
+* **[Configuration Architecture](docs/configuration.md)**: Layered configuration hierarchy, workspace paths, and gate options.
+* **[Agent Constitution & Invariants (AGENTS.md)](AGENTS.md)**: Workspace isolation rules, sovereign worker allocation, and Two-Key discipline.
+
+---
+
 ## Standalone Yet Designed for the Axiomantic Triad
 
 Vine is completely standalone and can be used on its own for zero-cost Rift copy-on-write workspace cloning, `.envrc` build-cache normalization, and Two-Key gate verification on any git repository.

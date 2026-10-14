@@ -311,6 +311,97 @@ Never weave a strand into the canonical trunk without passing both keys:
 * **Weave**: `vine weave && rhizo ack queue:<project>:tasks <task_id>`
 <!-- END GARDEN GUIDE -->
 
+---
+
+## 4. Vine Workspace & Integration Architecture
+
+Vine provisions zero-cost APFS Copy-on-Write strands (`rift`) and enforces dual-key integration before merging code into canonical trunk.
+
+```mermaid
+flowchart TD
+    subgraph Canonical["Canonical Git Repository"]
+        Trunk["Trunk (main)"]
+    end
+
+    subgraph StrandEngine["Vine Virtualization Layer"]
+        Strand["Isolated Strand (APFS CoW Workspace)"]
+        Cache[".envrc Polyglot Cache Layer (ccache, cargo, uv, nim)"]
+        Manifest[".vine.json Manifest & State Machine"]
+    end
+
+    subgraph TwoKey["Two-Key Integration Gate"]
+        Key1["Key 1: In-Memory git merge-tree Check"]
+        Key2["Key 2: Live Compiler & Test Suite Run"]
+        Token["Cryptographic gate_token Stamped"]
+    end
+
+    Trunk -->|vine new| Strand
+    Strand --> Cache
+    Strand --> Manifest
+    Strand -->|vine gate| Key1
+    Key1 -->|Clean| Key2
+    Key2 -->|Green| Token
+    Token -->|vine weave| Trunk
+```
+
+---
+
+## 5. Vine Machine Constitution & Core Invariants
+
+All agents operating within or on the Vine engine MUST adhere to these strict invariants:
+
+<INVARIANT>
+Zero Dirty Commits:
+Never stage or commit '.vine.json', '.envrc', or workspace metadata into Git. Strand metadata must remain uncommitted and ignored in '~/.gitignore_global' or '.git/info/exclude'.
+</INVARIANT>
+
+<INVARIANT>
+The Two-Key Rule (Zero Green Mirage):
+Never declare a task complete or attempt to weave without passing both keys ('vine gate' exit 0): Key 1 verifies in-memory mechanical mergeability ('git merge-tree --write-tree'); Key 2 executes the project test suite. Text mergeability does not imply compilation or correctness.
+</INVARIANT>
+
+<INVARIANT>
+Sovereign Worker Allocation:
+Workspaces (Strands) are allocated strictly 1:1 to sovereign, dedicated worker sessions. Never assign harness-internal subagents or multiple concurrent workers to the same strand directory to prevent Git index collisions and cache corruption.
+</INVARIANT>
+
+<INVARIANT>
+No Workspace-Scoped Identity Files:
+Agent identity is strictly decoupled from directory paths. Never create or read '.rhizo.agent' or '.vine.agent' in any project or strand directory.
+</INVARIANT>
+
+<INVARIANT>
+Directory Isolation:
+All strands live outside canonical repositories ($HOME/Development/workspaces/<project>/<task-slug>/<repo>) to prevent recursive indexing, IDE file watcher thrashing, and find/grep pollution.
+</INVARIANT>
+
+---
+
+## 6. Dynamic Documentation Sync & Verification
+
+To verify that all strand lifecycle state machines, Two-Key gate runners, and CLI flags remain synchronized with code:
+
+```bash
+# Verify test suite & gate logic
+nimble test
+python3 tests/test_vine.py
+```
+
+---
+
+## 7. Documentation Directory & Reading Paths
+
+Agents and human engineers operating in this repository must consult the dedicated documentation modules:
+
+| Document | Path | Description |
+| :--- | :--- | :--- |
+| **Strand Lifecycle** | [`docs/strand_lifecycle.md`](docs/strand_lifecycle.md) | APFS CoW workspaces, directory layout, `.vine.json` schema, and collision detection. |
+| **Two-Key Gate** | [`docs/two_key_gate.md`](docs/two_key_gate.md) | Key 1 mechanical merge-tree + Key 2 live test discovery cascade and gate tokens. |
+| **Build Cache Normalization** | [`docs/cache_normalization.md`](docs/cache_normalization.md) | Non-destructive `.envrc` chaining, Ccache, Cargo target, and uv clone links. |
+| **CLI Reference Manual** | [`docs/cli_reference.md`](docs/cli_reference.md) | Complete catalog of Vine commands (`new`, `status`, `collisions`, `gate`, `weave`, `prune`). |
+| **Configuration Architecture** | [`docs/configuration.md`](docs/configuration.md) | Project-level configuration, workspace directories, and test runner configurations. |
+
+
 
 
 
