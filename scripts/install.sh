@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# /Users/eek/Development/braid/scripts/install.sh
-# Universal installer for Braid: Sub-Second APFS CoW Workspaces & Zero-Mirage Weaving Engine.
+# /Users/eek/Development/vine/scripts/install.sh
+# Universal installer for Vine: Sub-Second APFS CoW Workspaces & Zero-Mirage Weaving Engine.
 set -euo pipefail
 
-REPO="axiomantic/braid"
+REPO="axiomantic/vine"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 mkdir -p "$INSTALL_DIR"
 
@@ -21,21 +21,21 @@ detect_platform() {
 
 install_rules() {
   local target_content
-  target_content='# Braid Workspace & Strand Coordination Guide
+  target_content='# Vine Workspace & Strand Coordination Guide
 
-Braid manages zero-cost APFS copy-on-write workspaces (**Strands**), polyglot build cache normalizers, and the Two-Key integration gate for parallel agent development.
+Vine manages zero-cost APFS copy-on-write workspaces (**Strands**), polyglot build cache normalizers, and the Two-Key integration gate for parallel agent development.
 
 ## 1. Invariants & Strand Identity
 * **No Workspace-Scoped Identity Files**:
-  Agent identity is strictly decoupled from directory paths. Never create or read `.locutus.agent` or `.braid.agent` in any project or strand directory.
+  Agent identity is strictly decoupled from directory paths. Never create or read `.rhizo.agent` or `.vine.agent` in any project or strand directory.
 * **Zero Dirty Commits**:
-  All strand state, lockfiles, temporary buffers, and manifests must be ignored in `~/.gitignore_global` or `.git/info/exclude`. Never stage or commit coordination metadata (`.braid.json`, `workspaces/`).
+  All strand state, lockfiles, temporary buffers, and manifests must be ignored in `~/.gitignore_global` or `.git/info/exclude`. Never stage or commit coordination metadata (`.vine.json`, `workspaces/`).
 * **Compaction Recovery**:
   Whenever starting a session or recovering from context compaction, inspect active strands before editing canonical files:
   ```bash
-  braid list 2>/dev/null || rift list 2>/dev/null || ls -la ~/Development/workspaces/ 2>/dev/null || true
+  vine list 2>/dev/null || rift list 2>/dev/null || ls -la ~/Development/workspaces/ 2>/dev/null || true
   ```
-  If an assigned task has an active `.braid.json`, re-anchor to that directory instead of touching the canonical repository root.
+  If an assigned task has an active `.vine.json`, re-anchor to that directory instead of touching the canonical repository root.
 
 ---
 
@@ -83,43 +83,43 @@ Never declare a task complete without passing both keys:
 
   # Claude Code
   if [ -d "$HOME/.claude/rules" ]; then
-    echo "$target_content" > "$HOME/.claude/rules/braid.md"
-    echo "Installed Braid rule to ~/.claude/rules/braid.md"
+    echo "$target_content" > "$HOME/.claude/rules/vine.md"
+    echo "Installed Vine rule to ~/.claude/rules/vine.md"
   fi
 
   # OpenCode
   if [ -d "$HOME/.config/opencode/instructions" ]; then
-    echo "$target_content" > "$HOME/.config/opencode/instructions/braid.md"
-    echo "Installed Braid instruction to ~/.config/opencode/instructions/braid.md"
+    echo "$target_content" > "$HOME/.config/opencode/instructions/vine.md"
+    echo "Installed Vine instruction to ~/.config/opencode/instructions/vine.md"
   fi
 
   # Antigravity
   if [ -d "$HOME/.gemini/antigravity/rules" ]; then
-    echo "$target_content" > "$HOME/.gemini/antigravity/rules/braid.md"
-    echo "Installed Braid rule to ~/.gemini/antigravity/rules/braid.md"
+    echo "$target_content" > "$HOME/.gemini/antigravity/rules/vine.md"
+    echo "Installed Vine rule to ~/.gemini/antigravity/rules/vine.md"
   fi
 }
 
 main() {
-  echo "Installing Braid..."
+  echo "Installing Vine..."
   local platform
   platform="$(detect_platform)"
 
-  # If running inside Braid repo, build from source
-  if [ -f "src/braid.nim" ]; then
-    nim c -d:release -o:"$INSTALL_DIR/braid" src/braid.nim
-    echo "Built and installed Braid to $INSTALL_DIR/braid"
+  # If running inside Vine repo, build from source
+  if [ -f "src/vine.nim" ]; then
+    nim c -d:release -o:"$INSTALL_DIR/vine" src/vine.nim
+    echo "Built and installed Vine to $INSTALL_DIR/vine"
   else
     echo "Downloading release for $platform..."
-    local url="https://github.com/${REPO}/releases/latest/download/braid-${platform}.tar.gz"
-    curl -fsSL "$url" | tar -xz -C "$INSTALL_DIR" braid
+    local url="https://github.com/${REPO}/releases/latest/download/vine-${platform}.tar.gz"
+    curl -fsSL "$url" | tar -xz -C "$INSTALL_DIR" vine
   fi
 
   install_rules
 
   echo ""
-  echo "Braid installation complete!"
-  echo "Run 'braid --version' or 'braid new <task-id>' to get started."
+  echo "Vine installation complete!"
+  echo "Run 'vine --version' or 'vine new <task-id>' to get started."
 }
 
 main "$@"
