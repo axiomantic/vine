@@ -187,6 +187,7 @@ git fetch "$STRAND_DIR" <branch>:<branch>
 # Fast-forward merge
 git merge --ff-only <branch>
 ```
+* **Post-Push CI Verification (Loose Guideline)**: After weaving and pushing (`git push`) when remote CI is running, if your coding harness supports timers/scheduling (e.g. `schedule`), set a periodic timer to check CI status (`gh run list`) — defaulting to every **5 minutes** for a maximum of **12 checks (1 hour total)**, cancelling early once CI completes.
 
 #### Step 4: Prune & Cleanup
 ```bash

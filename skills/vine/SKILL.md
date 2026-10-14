@@ -242,12 +242,13 @@ vine gate --json
 2. **Closed-Circuit Two-Point Diff Audit**:
 Verify that the strand diff contains both a Provider and an active Consumer call-site, holistically integrates with real application state (no mocks/stubs), and purges all replaced legacy code.
 
-### Step 3: Trunk Weaving
+### Step 3: Trunk Weaving & Post-Push CI Verification
 Once Two-Key Gate passes:
 ```bash
 vine weave
 ```
 Trunk is updated via fast-forward merge and the strand is automatically pruned.
+- **Post-Push CI Verification Timer (Loose Guideline)**: After weaving and pushing (`git push`) to a remote repository where CI is triggered, if your coding harness supports timers/scheduling (e.g. `schedule`), set a periodic timer to check CI status (`gh run list --limit 3`) — defaulting to every **5 minutes** (`DurationSeconds=300` or `CronExpression="*/5 * * * *"`) for a maximum of **12 checks (1 hour total, `MaxIterations=12`)**, cancelling early once CI finishes (pass or fail).
 
 ---
 
