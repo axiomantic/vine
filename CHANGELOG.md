@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.7] - 2026-10-14
+
+### Added
+- **Closed-Circuit Two-Point Diff Mandate (Vine Guide v1.4)**:
+  - Formally codified the requirement that every strand deliverable must contain both a Provider and an active Consumer call-site in live entrypoints, routers, CLI dispatchers, or UI. Hermetic modules tested solely by their own unit tests are strictly prohibited as incomplete shelfware.
+- **Holistic Production Integration (Anti-Stub / Anti-Toy)**:
+  - Deliverables must actually holistically integrate with real application state and production error paths rather than mock heuristics or dummy stubs.
+- **Aggressive Replacement Purge (Zero Dead Code)**:
+  - Obsolete code, deprecated functions, and vestigial fallbacks targeted for replacement MUST be deleted in the same strand diff.
+- **Closed-Circuit Audit in Two-Key Gate**:
+  - Embedded the Closed-Circuit audit step in the weaving protocol in `guide.nim` (`v1.4`), `SKILL.md`, and `skills/vine/SKILL.md`.
+
+## [0.2.6] - 2026-10-13
+
+### Added
+- **Strand Identity Attestation & Dual-Onboarding Docs**:
+  - Added `.vine/strand.json` identity tracking and comprehensive dual-onboarding documentation suite.
+
 ## [0.2.5] - 2026-10-10
 
 ### Added

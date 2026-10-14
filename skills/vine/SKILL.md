@@ -30,6 +30,11 @@ npm install -g @axiomantic/rhizo @axiomantic/vine @axiomantic/garden rift-snapsh
 Never weave a strand into the canonical trunk without passing the Two-Key Gate ('vine gate' exit code 0). Key 1 verifies in-memory mechanical mergeability; Key 2 executes the project test suite. Text mergeability does not imply compilation or correctness.
 </CRITICAL>
 
+<CRITICAL>
+Closed-Circuit Two-Point Diff & Holistic Integration Mandate:
+Never construct isolated code in a vacuum. Every strand deliverable must contain both a Provider (new capability) and an active Consumer call-site (live entrypoint, router, CLI dispatcher, or UI). Modules tested solely by their own test suites are strictly prohibited as incomplete shelfware. Furthermore, the integration must be holistic (no toys, stubs, mocks, or shallow heuristics). Any legacy or obsolete code targeted for replacement MUST be deleted in the same strand—never preserved as a vestigial fallback or commented out.
+</CRITICAL>
+
 <INVARIANT>
 Rift is the primary, preferred workspace engine. Git worktree is supported as a fallback when '--worktree' is explicitly specified or if Rift is unavailable.
 </INVARIANT>
@@ -224,14 +229,18 @@ vine new <task_id> --branch strand/<task_id>
 ```
 Navigate to the returned `strand_path` and perform all edits, compilations, and tests there.
 
-### Step 2: Verify Two-Key Gate
+### Step 2: Verify Two-Key Gate & Closed-Circuit Audit
 Before signaling completion to the orchestrator:
+1. **Two-Key Gate**:
 ```bash
 vine gate --json
 ```
 - **Exit 0**: Both Key 1 and Key 2 passed. Report pass to orchestrator.
 - **Exit 1**: Key 1 failed (conflicts with canonical trunk). Run `vine sync` inside strand to resolve conflicts.
 - **Exit 2**: Key 2 failed (compiler or test failure). Fix code inside strand.
+
+2. **Closed-Circuit Two-Point Diff Audit**:
+Verify that the strand diff contains both a Provider and an active Consumer call-site, holistically integrates with real application state (no mocks/stubs), and purges all replaced legacy code.
 
 ### Step 3: Trunk Weaving
 Once Two-Key Gate passes:
