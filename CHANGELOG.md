@@ -20,8 +20,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.6] - 2026-10-13
 
 ### Added
-- **Strand Identity Attestation & Dual-Onboarding Docs**:
-  - Added `.vine/strand.json` identity tracking and comprehensive dual-onboarding documentation suite.
+- **Worker & Orchestrator Identity Attestation (`src/strand.nim`, `src/vine.nim`)**:
+  - Added `--worker <agent>` and `--orchestrator <agent>` options (with automatic `RHIZO_AGENT_NAME` / `VINE_WORKER` environment detection) to `vine new`.
+  - Automatically writes `.vine/strand.json` identity attestation metadata alongside `.vine.json` to bind each isolated strand to its owning sovereign worker and orchestrator.
+- **Internal Metadata Filtering in Strand Status (`src/strand.nim`)**:
+  - Updated `doStrandStatus` dirty-working-tree calculation to filter out `.vine/` and `.vine/strand.json` internal coordination files alongside `.vine.json`, `.envrc`, and `.venv`, preventing false-positive dirty strand states.
+- **Comprehensive Dual-Onboarding Documentation Suite (`AGENTS.md`, `README.md`, `docs/`)**:
+  - Authored `docs/strand_lifecycle.md` (Rift APFS CoW vs. Git worktree provisioning, vendoring fast-path, `.venv` relocatability policy), `docs/two_key_gate.md` (Key 1 `git merge-tree --write-tree` mechanical check + Key 2 live compiler/test runner cascade), `docs/cache_normalization.md` (`.envrc` ccache, Cargo, Nimcache, and uv link-mode normalization across strands), and `docs/cli_reference.md` (complete CLI command & exit code reference).
+  - Updated `AGENTS.md` and `README.md` with structured onboarding maps for both human developers and LLM agents.
+- **Test Suite Expansion (`tests/test_vine.py`)**:
+  - Added identity attestation and `.vine/strand.json` dirty-status filtering test coverage.
 
 ## [0.2.5] - 2026-10-10
 
