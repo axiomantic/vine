@@ -505,7 +505,7 @@ def test_vine_gate_custom_test_command():
 
         try:
             # 1. Custom passing test command
-            pass_cmd = f"{sys.executable} -c 'import sys; print(\"Tests passed\"); sys.exit(0)'"
+            pass_cmd = f'{sys.executable} -c "import sys; print(\'Tests passed\'); sys.exit(0)"'
             g_code, g_out, g_err = run_vine("gate", "--dir", strand_path, "--base", "main", "--test-command", pass_cmd, "--json")
             assert g_code == 0, f"Expected gate pass: {g_err}\nOut: {g_out}"
             g_data = json.loads(g_out)
@@ -514,7 +514,7 @@ def test_vine_gate_custom_test_command():
             assert g_data["test_command"] == pass_cmd
 
             # 2. Custom failing test command
-            fail_cmd = f"{sys.executable} -c 'import sys; sys.stderr.write(\"Synthetic test failure\"); sys.exit(42)'"
+            fail_cmd = f'{sys.executable} -c "import sys; sys.stderr.write(\'Synthetic test failure\'); sys.exit(42)"'
             f_code, f_out, f_err = run_vine("gate", "--dir", strand_path, "--base", "main", "--test-command", fail_cmd, "--json")
             assert f_code == 2, f"Expected gate semantic failure, got {f_code}\nOut: {f_out}"
             f_data = json.loads(f_out)
