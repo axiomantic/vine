@@ -14,7 +14,7 @@ proc printHelp() =
   echo "  vine list [--repo <path>] [--all]"
   echo "  vine status [task_id|path] [--dir <path>] [--json]"
   echo "  vine collisions [--repo <path>] [--json]"
-  echo "  vine gate [branch] [--base <ref>] [--dir <path>] [--skip-tests] [--test-command <cmd>] [--json] [-- <command...>]"
+  echo "  vine gate [branch] [--base <ref>] [--dir <path>] [--skip-tests] [--allow-no-tests] [--allow-test-only] [--test-command <cmd>] [--json] [-- <command...>]"
   echo "  vine sync [--dir <path>] [--base <ref>] [--rebase]"
   echo "  vine weave [branch] [--base <ref>] [--dir <path>] [--force]"
   echo "  vine prune [--repo <path>] [--max-age <hours>] [--apply]"
@@ -155,6 +155,8 @@ proc main() =
     var baseRef = "HEAD"
     var strandDir = ""
     var skipTests = false
+    var allowNoTests = false
+    var allowTestOnly = false
     var testCmd = ""
     var jsonOut = false
     var i = 1
@@ -174,11 +176,13 @@ proc main() =
         testCmd = args[i+1]; inc i
       elif a.startsWith("--test-command="): testCmd = a[15..^1]
       elif a == "--skip-tests": skipTests = true
+      elif a == "--allow-no-tests": allowNoTests = true
+      elif a == "--allow-test-only": allowTestOnly = true
       elif a == "--json": jsonOut = true
       elif not a.startsWith("-") and branch.len == 0:
         branch = a
       inc i
-    let (res, code) = doBraidGate(branch, baseRef, strandDir, skipTests, testCmd)
+    let (res, code) = doBraidGate(branch, baseRef, strandDir, skipTests, testCmd, allowNoTests, allowTestOnly)
     if jsonOut:
       echo pretty(res)
     else:
@@ -187,12 +191,17 @@ proc main() =
         echo "  Mechanical: Clean (tree: " & res{"merge_tree_sha"}.getStr("") & " in " & $res{"mechanical_gate_ms"}.getFloat() & " ms)"
         if res.hasKey("test_command"):
           echo "  Semantic  : 100% Green (" & res{"test_command"}.getStr() & " in " & $res{"test_duration_ms"}.getFloat() & " ms)"
+        if res.hasKey("gate_token"):
+          echo "  Gate Token: " & res{"gate_token"}.getStr()
       elif code == 1:
         stderr.writeLine("[CONFLICT] Key 1 Mechanical Gate Failed:")
         for c in res{"conflicts"}: stderr.writeLine("  " & c.getStr())
       elif code == 2:
         stderr.writeLine("[FAILURE] Key 2 Semantic Compiler Gate Failed:")
         stderr.writeLine(res{"compiler_output"}.getStr())
+      elif code == 3:
+        stderr.writeLine("[VIOLATION] Two-Point Diff Verification Failed:")
+        stderr.writeLine(res{"two_point_diff_error"}.getStr())
     quit(code)
 
   of "sync", "rebase":

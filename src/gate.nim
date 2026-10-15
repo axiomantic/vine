@@ -2,7 +2,7 @@
 # The Two-Key Integration Gate for Braid (Zero Green Mirage).
 
 import std/[os, osproc, strutils, json, times]
-import config, strand
+import config, strand, crypto
 
 proc detectTestCommand*(dir: string): string =
   if fileExists(dir / "Cargo.toml"): return "cargo test"
@@ -24,7 +24,9 @@ proc doBraidGate*(
   baseRefParam: string = "HEAD",
   strandDirParam: string = "",
   skipTests: bool = false,
-  testCmdParam: string = ""
+  testCmdParam: string = "",
+  allowNoTests: bool = false,
+  allowTestOnly: bool = false
 ): tuple[output: JsonNode, exitCode: int] =
   var strandDir = if strandDirParam.len > 0: strandDirParam.normalizedPath else: getCurrentDir()
   var manifestPath = strandDir / ".vine.json"
@@ -102,7 +104,111 @@ proc doBraidGate*(
   res["key1_mechanical"] = %"PASS"
   res["merge_tree_sha"] = %treeSha
 
+  # --- TWO-POINT DIFF & CONSUMER CALL-SITE VERIFICATION ---
+  if not allowTestOnly:
+    let diffBase = if baseRef.len > 0 and baseRef != "HEAD": baseRef
+                   elif manifest != nil and manifest.hasKey("base_branch"): manifest["base_branch"].getStr()
+                   elif manifest != nil and manifest.hasKey("base_commit"): manifest["base_commit"].getStr()
+                   else: "main"
+    let diffCmd = "git -C " & quoteShell(strandDir) & " diff --name-status " & quoteShell(diffBase) & "..." & quoteShell(branch)
+    let (dOut, dCode) = execCmdEx(diffCmd)
+    if dCode == 0 and dOut.strip().len > 0:
+      var diffFiles: seq[string] = @[]
+      var diffStatuses: seq[tuple[status: char, path: string]] = @[]
+      var appFilesChanged = 0
+      var testFilesChanged = 0
+      var newCapabilities: seq[string] = @[]
+
+      for line in dOut.splitLines():
+        let trimmed = line.strip()
+        if trimmed.len < 2: continue
+        let parts = trimmed.split('\t')
+        if parts.len < 2: continue
+        let statusCode = parts[0][0]
+        let filePath = parts[1].strip()
+
+        # Ignore coordination metadata & root non-source files
+        let normPath = filePath.replace('\\', '/')
+        if normPath in [".vine.json", ".envrc", ".gitignore", "vine.toml", "README.md", "LICENSE"] or
+           normPath.startsWith(".git") or normPath.startsWith(".rhizo"):
+          continue
+
+        diffFiles.add(normPath)
+        diffStatuses.add((statusCode, normPath))
+
+        if normPath.startsWith("tests/") or normPath.startsWith("test/"):
+          inc testFilesChanged
+        elif normPath.startsWith("src/") or normPath.startsWith("bin/") or
+             normPath.startsWith("lib/") or normPath.startsWith("app/"):
+          inc appFilesChanged
+          if statusCode == 'A':
+            newCapabilities.add(normPath)
+
+      # Invariant 1: Reject strands where 100% of changes are in tests/
+      if diffFiles.len > 0 and testFilesChanged == diffFiles.len:
+        res["status"] = %"two_point_diff_failed"
+        res["clean"] = %false
+        res["two_point_diff"] = %"FAIL"
+        res["two_point_diff_error"] = %"Two-Point Diff Violation: 100% of changes are in tests/. Deliverable must include production capability in application source files (src/, bin/, etc.)."
+        if manifest != nil:
+          manifest["status"] = %"GATE_FAILED"
+          manifest["lifecycle_state"] = %"GATE_FAILED"
+          try: writeFile(manifestPath, pretty(manifest))
+          except CatchableError: discard
+        return (res, 3)
+
+      # Invariant 2: Newly introduced capabilities must have a consumer call-site in application source files
+      for newCap in newCapabilities:
+        let capName = newCap.splitPath.tail.changeFileExt("") # e.g. "auth" from "src/auth.nim"
+        if capName.len < 2: continue
+        var hasConsumer = false
+
+        # Check other changed application source files in diff
+        for (st, path) in diffStatuses:
+          if (path.startsWith("src/") or path.startsWith("bin/") or path.startsWith("lib/") or path.startsWith("app/")) and path != newCap:
+            let fullPath = strandDir / path
+            if fileExists(fullPath):
+              try:
+                if readFile(fullPath).contains(capName):
+                  hasConsumer = true
+                  break
+              except CatchableError: discard
+
+        # If not in diff, search existing source files in application directories
+        if not hasConsumer:
+          for appSub in ["src", "bin", "lib", "app"]:
+            let appDir = strandDir / appSub
+            if dirExists(appDir):
+              for p in walkDirRec(appDir):
+                if p.normalizedPath != (strandDir / newCap).normalizedPath:
+                  try:
+                    if readFile(p).contains(capName):
+                      hasConsumer = true
+                      break
+                  except CatchableError: discard
+              if hasConsumer: break
+
+        if not hasConsumer:
+          res["status"] = %"two_point_diff_failed"
+          res["clean"] = %false
+          res["two_point_diff"] = %"FAIL"
+          res["two_point_diff_error"] = %("Two-Point Diff Violation: Newly introduced capability '" & newCap &
+            "' lacks a consumer call-site in application source files (src/, bin/, etc.). Shelfware without production caller is prohibited.")
+          if manifest != nil:
+            manifest["status"] = %"GATE_FAILED"
+            manifest["lifecycle_state"] = %"GATE_FAILED"
+            try: writeFile(manifestPath, pretty(manifest))
+            except CatchableError: discard
+          return (res, 3)
+
+      res["two_point_diff"] = %"PASS"
+    else:
+      res["two_point_diff"] = %"PASS"
+  else:
+    res["two_point_diff"] = %"SKIPPED (allow-test-only)"
+
   # --- KEY 2: Live Compiler & Test Suite Gate (Anti-Green Mirage) ---
+  var testOutput = ""
   if not skipTests:
     let manifestTestCmd = if manifest != nil and manifest.hasKey("test_command"): manifest["test_command"].getStr() else: ""
     let testCmd = if testCmdParam.len > 0: testCmdParam
@@ -116,6 +222,7 @@ proc doBraidGate*(
         execCmdEx(testCmd, workingDir = strandDir)
       except CatchableError as e:
         (e.msg, 1)
+      testOutput = tOut
       let testDurationMs = (getTime().toUnixFloat() - tTest0) * 1000.0
       res["test_duration_ms"] = %testDurationMs
 
@@ -133,14 +240,47 @@ proc doBraidGate*(
 
         return (res, 2)
       res["key2_semantic"] = %"PASS"
+    elif allowNoTests:
+      res["key2_semantic"] = %"SKIPPED (no test runner detected; allowed via --allow-no-tests)"
+      testOutput = "NO_TESTS_ALLOWED"
     else:
-      res["key2_semantic"] = %"SKIPPED (no test runner detected)"
-  else:
-    res["key2_semantic"] = %"SKIPPED (requested)"
+      res["status"] = %"semantic_failure"
+      res["clean"] = %false
+      res["key2_semantic"] = %"FAIL (no test runner detected)"
+      res["compiler_output"] = %"Zero tests executed: no test runner detected in strand. To prevent Green Mirage, pass --allow-no-tests if this repository does not have tests."
 
-  # Both Keys Passed!
+      if manifest != nil:
+        manifest["status"] = %"GATE_FAILED"
+        manifest["lifecycle_state"] = %"GATE_FAILED"
+        try: writeFile(manifestPath, pretty(manifest))
+        except CatchableError: discard
+
+      return (res, 2)
+  else:
+    if allowNoTests:
+      res["key2_semantic"] = %"SKIPPED (requested)"
+      testOutput = "TESTS_SKIPPED"
+    else:
+      res["status"] = %"semantic_failure"
+      res["clean"] = %false
+      res["key2_semantic"] = %"FAIL (tests skipped without --allow-no-tests)"
+      res["compiler_output"] = %"Zero tests executed: --skip-tests was provided without --allow-no-tests. Gate failed to prevent Green Mirage."
+      if manifest != nil:
+        manifest["status"] = %"GATE_FAILED"
+        manifest["lifecycle_state"] = %"GATE_FAILED"
+        try: writeFile(manifestPath, pretty(manifest))
+        except CatchableError: discard
+      return (res, 2)
+
+  # Both Keys and Two-Point Diff Passed!
+  let testOutputHash = sha256(testOutput)
+  let gateToken = computeGateToken(treeSha, testOutputHash)
+
   res["status"] = %"green"
   res["clean"] = %true
+  res["merge_tree_sha"] = %treeSha
+  res["test_output_hash"] = %testOutputHash
+  res["gate_token"] = %gateToken
 
   # Update .vine.json if present
   if manifest != nil:
@@ -149,6 +289,8 @@ proc doBraidGate*(
     manifest["status"] = %"READY_FOR_WEAVE"
     manifest["lifecycle_state"] = %"GATE_PASSED"
     manifest["merge_tree_sha"] = %treeSha
+    manifest["test_output_hash"] = %testOutputHash
+    manifest["gate_token"] = %gateToken
     manifest["verified_at"] = %now().utc().format("yyyy-MM-dd'T'HH:mm:ss'Z'")
     try: writeFile(manifestPath, pretty(manifest))
     except CatchableError: discard
