@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.8] - 2026-10-14
+
+### Added
+- **Post-Push CI Verification Timer Guideline (`src/guide.nim`, `SKILL.md`, `skills/vine/SKILL.md`)**:
+  - Embedded loose guidelines in the Two-Key Gate & Weaving protocol to schedule periodic CI status checks (default every 5m, max 12 checks / 1hr) after weaving and pushing to remote trunk.
+- **Nomenclature Cleanup (`AGENTS.md`, `scripts/install.sh`)**:
+  - Renamed remaining `Locutus` and `Braid` references across rule templates and install scripts to `Rhizo` and `Vine`.
+
 ## [0.2.7] - 2026-10-14
 
 ### Added
