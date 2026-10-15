@@ -748,6 +748,69 @@ test_command = "cargo test"
         assert str(custom_ws) in data3["strand_path"]
         assert Path(data3["strand_path"]).exists()
 
+def test_vine_weave_and_gate_auto_resolve_by_task_id():
+    """Verify that vine gate, vine weave, and vine status auto-resolve strand directory by branch or task_id without --dir."""
+    with tempfile.TemporaryDirectory(prefix="vine_autoresolve_") as repo_dir:
+        subprocess.run(["git", "init", "-b", "main", "-q", repo_dir], check=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.email", "agent@vine.mesh"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.name", "Vine Agent"], check=True)
+
+        readme = os.path.join(repo_dir, "README.md")
+        with open(readme, "w") as f:
+            f.write("# Autoresolve Test\n")
+        subprocess.run(["git", "-C", repo_dir, "add", "README.md"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "commit", "-q", "-m", "Initial commit"], check=True)
+
+        task_id = f"task-auto-{int(time.time() * 1000)}"
+        code, out, err = run_vine("new", task_id, "--repo", repo_dir, "--branch", f"strand/{task_id}", "--worktree")
+        assert code == 0, f"Failed to create strand: {err}"
+        data = json.loads(out)
+        strand_path = data["strand_path"]
+
+        try:
+            # Add a feature file in the strand
+            feat_file = os.path.join(strand_path, "feature.txt")
+            with open(feat_file, "w") as f:
+                f.write("Autoresolved feature\n")
+            subprocess.run(["git", "-C", strand_path, "add", "feature.txt"], check=True)
+            subprocess.run(["git", "-C", strand_path, "commit", "-q", "-m", "feat: add feature"], check=True)
+
+            # Change cwd to repo_dir (canonical repo without .vine.json)
+            orig_cwd = os.getcwd()
+            os.chdir(repo_dir)
+            try:
+                # 1. Gate resolution by branch name without --dir
+                g_code, g_out, g_err = run_vine("gate", f"strand/{task_id}", "--skip-tests", "--json")
+                assert g_code == 0, f"Gate failed: {g_err}\nOut: {g_out}"
+                g_data = json.loads(g_out)
+                assert g_data["strand_path"] == strand_path
+
+                # 2. Gate resolution by task_id without --dir
+                g_code2, g_out2, g_err2 = run_vine("gate", task_id, "--skip-tests", "--json")
+                assert g_code2 == 0, f"Gate by task_id failed: {g_err2}\nOut: {g_out2}"
+                g_data2 = json.loads(g_out2)
+                assert g_data2["strand_path"] == strand_path
+
+                # 3. Status resolution by task_id before weave
+                s_code, s_out, s_err = run_vine("status", task_id, "--json")
+                assert s_code == 0, f"Status failed: {s_err}"
+                s_data = json.loads(s_out)
+                assert s_data["commits_ahead"] == 1
+
+                # 4. Weave resolution by task_id from canonical repo without --dir
+                w_code, w_out, w_err = run_vine("weave", task_id, "--force")
+                assert w_code == 0, f"Weave by task_id failed: {w_err}\nOut: {w_out}"
+                w_data = json.loads(w_out)
+                assert w_data["status"] == "woven"
+                assert os.path.exists(os.path.join(repo_dir, "feature.txt")), "feature.txt not found in canonical repo after weave"
+            finally:
+                os.chdir(orig_cwd)
+        finally:
+            if os.path.exists(strand_path):
+                subprocess.run(["git", "-C", repo_dir, "worktree", "remove", "--force", strand_path], capture_output=True)
+                subprocess.run(["git", "-C", repo_dir, "worktree", "prune"], capture_output=True)
+                shutil.rmtree(os.path.dirname(os.path.dirname(strand_path)), ignore_errors=True)
+
 if __name__ == "__main__":
     import inspect
     import traceback

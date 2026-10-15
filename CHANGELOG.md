@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.9] - 2026-10-14
+
+### Added
+- **Strand Directory & Manifest Auto-Resolution (`src/strand.nim`, `src/weave.nim`, `src/gate.nim`)**:
+  - Added exported `findStrandManifest` to locate registered workspace strands by `task_id`, branch name, or directory path.
+  - Updated `vine weave` and `vine gate` to automatically resolve target strand paths and manifest metadata when invoked from canonical trunk with a branch or `task_id` without requiring `--dir`.
+  - Added automatic fallback to manifest branch name when `branchParam` matches a task identifier rather than a literal git branch.
+  - Added comprehensive test coverage in `tests/test_vine.py` (`test_vine_weave_and_gate_auto_resolve_by_task_id`).
+
 ## [0.2.8] - 2026-10-14
 
 ### Added

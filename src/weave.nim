@@ -3,7 +3,7 @@
 
 import std/[os, osproc, strutils, json]
 import gate
-import config
+import config, strand
 
 proc doBraidWeave*(
   branchParam: string = "",
@@ -11,13 +11,21 @@ proc doBraidWeave*(
   strandDirParam: string = "",
   force: bool = false
 ): tuple[output: JsonNode, exitCode: int] =
-  let strandDir = if strandDirParam.len > 0: strandDirParam.normalizedPath else: getCurrentDir()
-  let manifestPath = strandDir / ".vine.json"
+  var strandDir = if strandDirParam.len > 0: strandDirParam.normalizedPath else: getCurrentDir()
+  var manifestPath = strandDir / ".vine.json"
   var manifest: JsonNode = nil
 
   if fileExists(manifestPath):
     try: manifest = parseJson(readFile(manifestPath))
     except CatchableError: discard
+
+  # Auto-resolve from strand registry if manifest not found in current directory
+  if manifest == nil and branchParam.len > 0:
+    let found = findStrandManifest(branchParam, getCurrentDir())
+    if found != nil and found.hasKey("strand_path") and dirExists(found["strand_path"].getStr):
+      manifest = found
+      strandDir = manifest["strand_path"].getStr.normalizedPath
+      manifestPath = strandDir / ".vine.json"
 
   # Step 1: Run Gate check if not already verified green
   if not force:
@@ -32,8 +40,12 @@ proc doBraidWeave*(
       errObj["gate_results"] = gateRes
       return (errObj, 1)
 
-  let branch = if branchParam.len > 0: branchParam
-               elif manifest != nil and manifest.hasKey("branch"): manifest["branch"].getStr()
+  let branch = if branchParam.len > 0 and execCmdEx("git -C " & quoteShell(strandDir) & " rev-parse --verify " & quoteShell(branchParam)).exitCode == 0:
+                 branchParam
+               elif manifest != nil and manifest.hasKey("branch"):
+                 manifest["branch"].getStr()
+               elif branchParam.len > 0:
+                 branchParam
                else:
                  let (outp, code) = execCmdEx("git -C " & quoteShell(strandDir) & " rev-parse --abbrev-ref HEAD")
                  if code == 0: outp.strip() else: "HEAD"
@@ -51,6 +63,8 @@ proc doBraidWeave*(
                         manifest["canonical_repo"].getStr()
                       elif dirExists(devBase / projectName):
                         devBase / projectName
+                      elif dirExists(getCurrentDir() / ".git"):
+                        getCurrentDir()
                       else:
                         ""
 

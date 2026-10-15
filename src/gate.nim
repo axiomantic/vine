@@ -2,7 +2,7 @@
 # The Two-Key Integration Gate for Braid (Zero Green Mirage).
 
 import std/[os, osproc, strutils, json, times]
-import config
+import config, strand
 
 proc detectTestCommand*(dir: string): string =
   if fileExists(dir / "Cargo.toml"): return "cargo test"
@@ -26,16 +26,28 @@ proc doBraidGate*(
   skipTests: bool = false,
   testCmdParam: string = ""
 ): tuple[output: JsonNode, exitCode: int] =
-  let strandDir = if strandDirParam.len > 0: strandDirParam.normalizedPath else: getCurrentDir()
-  let manifestPath = strandDir / ".vine.json"
+  var strandDir = if strandDirParam.len > 0: strandDirParam.normalizedPath else: getCurrentDir()
+  var manifestPath = strandDir / ".vine.json"
   var manifest: JsonNode = nil
 
   if fileExists(manifestPath):
     try: manifest = parseJson(readFile(manifestPath))
     except CatchableError: discard
 
-  let branch = if branchParam.len > 0: branchParam
-               elif manifest != nil and manifest.hasKey("branch"): manifest["branch"].getStr()
+  # Auto-resolve from strand registry if manifest not found in current directory
+  if manifest == nil and branchParam.len > 0:
+    let found = findStrandManifest(branchParam, getCurrentDir())
+    if found != nil and found.hasKey("strand_path") and dirExists(found["strand_path"].getStr):
+      manifest = found
+      strandDir = manifest["strand_path"].getStr.normalizedPath
+      manifestPath = strandDir / ".vine.json"
+
+  let branch = if branchParam.len > 0 and execCmdEx("git -C " & quoteShell(strandDir) & " rev-parse --verify " & quoteShell(branchParam)).exitCode == 0:
+                 branchParam
+               elif manifest != nil and manifest.hasKey("branch"):
+                 manifest["branch"].getStr()
+               elif branchParam.len > 0:
+                 branchParam
                else:
                  let (outp, code) = execCmdEx("git -C " & quoteShell(strandDir) & " rev-parse --abbrev-ref HEAD")
                  if code == 0: outp.strip() else: "HEAD"

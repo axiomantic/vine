@@ -399,29 +399,70 @@ proc doStrandSync*(
   res["mode"] = if useRebase: %"rebase" else: %"merge"
   return (res, 0)
 
+proc findStrandManifest*(query: string, repoDirParam: string = ""): JsonNode =
+  let q = query.strip()
+  if q.len == 0: return nil
+
+  # 1. Direct path check
+  if dirExists(q) and fileExists(q / ".vine.json"):
+    try: return parseJson(readFile(q / ".vine.json"))
+    except CatchableError: discard
+
+  if fileExists(q) and q.endsWith(".vine.json"):
+    try: return parseJson(readFile(q))
+    except CatchableError: discard
+
+  if dirExists(q.parentDir()) and fileExists(q.parentDir() / ".vine.json"):
+    try: return parseJson(readFile(q.parentDir() / ".vine.json"))
+    except CatchableError: discard
+
+  # 2. Workspace search by task_id, branch, or path suffix
+  let qNorm = q.toLowerAscii
+  let qBare = if qNorm.startsWith("strand/"): qNorm[7..^1]
+              elif qNorm.startsWith("refs/heads/strand/"): qNorm[18..^1]
+              elif qNorm.startsWith("refs/heads/"): qNorm[11..^1]
+              else: qNorm
+
+  let passes = if repoDirParam.len > 0: @[false, true] else: @[true]
+  for includeAll in passes:
+    let listData = doStrandList(repoDirParam, includeAll = includeAll)
+    if listData.hasKey("strands"):
+      for s in listData["strands"]:
+        let tid = s.getOrDefault("task_id").getStr("").toLowerAscii
+        let br = s.getOrDefault("branch").getStr("").toLowerAscii
+        let sPath = s.getOrDefault("strand_path").getStr("").toLowerAscii
+        let brBare = if br.startsWith("strand/"): br[7..^1] else: br
+
+        if tid == qNorm or tid == qBare:
+          return s
+        if br == qNorm or br == "strand/" & qNorm or brBare == qBare or brBare == qNorm:
+          return s
+        if sPath == qNorm or sPath.endsWith("/" & qBare) or sPath.endsWith("/" & qNorm):
+          return s
+
+  return nil
+
 proc doStrandStatus*(strandDirOrId: string = ""): tuple[status: JsonNode, exitCode: int] =
   var strandDir = ""
   var manifest: JsonNode = nil
 
   if strandDirOrId.len > 0:
-    if dirExists(strandDirOrId):
+    let found = findStrandManifest(strandDirOrId)
+    if found != nil and found.hasKey("strand_path") and dirExists(found["strand_path"].getStr):
+      strandDir = found["strand_path"].getStr.normalizedPath
+      manifest = found
+    elif dirExists(strandDirOrId):
       strandDir = strandDirOrId.normalizedPath
     else:
-      let allStrands = doStrandList("", includeAll = true)
-      for s in allStrands{"strands"}:
-        if s{"task_id"}.getStr == strandDirOrId or s{"branch"}.getStr == strandDirOrId or s{"strand_path"}.getStr.contains(strandDirOrId):
-          strandDir = s{"strand_path"}.getStr
-          break
-      if strandDir.len == 0:
-        var errObj = newJObject()
-        errObj["status"] = %"error"
-        errObj["message"] = %("Strand not found for identifier: " & strandDirOrId)
-        return (errObj, 1)
+      var errObj = newJObject()
+      errObj["status"] = %"error"
+      errObj["message"] = %("Strand not found for identifier: " & strandDirOrId)
+      return (errObj, 1)
   else:
     strandDir = getCurrentDir()
 
   let manifestPath = strandDir / ".vine.json"
-  if fileExists(manifestPath):
+  if manifest == nil and fileExists(manifestPath):
     try: manifest = parseJson(readFile(manifestPath))
     except CatchableError: discard
 
