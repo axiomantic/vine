@@ -57,8 +57,8 @@ export NIMCACHE="$CACHE_ROOT/nimcache"
 - `CARGO_TARGET_DIR="$CACHE_ROOT/cargo-target"`: Directs Cargo to place compiled dependency crates (`target/`) into a shared directory outside the strand. Intermediate `.rlib` dependencies compiled by one worker are immediately available to all other workers.
 
 ### C. Python (uv & Relocatable Venvs)
-- `UV_LINK_MODE="clone"`: Directs `uv` to use native APFS copy-on-write clone links for Python packages, taking 0 extra disk blocks.
-- **Relocatability Guard**: If `pyvenv.cfg` has `relocatable = true`, `.venv` is APFS cloned in $<50\text{ ms}$. If not relocatable, Vine executes `UV_VENV_RELOCATABLE=1 uv venv` (~12ms) to prevent shebang mutation of the parent repository.
+- `UV_LINK_MODE="clone"`: Directs `uv` to use native copy-on-write (reflink/clone) links for Python packages, taking 0 extra disk blocks.
+- **Relocatability Guard**: If `pyvenv.cfg` has `relocatable = true`, `.venv` is cloned via CoW in $<50\text{ ms}$. If not relocatable, Vine executes `UV_VENV_RELOCATABLE=1 uv venv` (~12ms) to prevent shebang mutation of the parent repository.
 
 ### D. Nim (Nimcache)
 - `NIMCACHE="$CACHE_ROOT/nimcache"`: Directs Nim's C code generation backend to emit `.c` and `.o` intermediate artifacts into a shared directory, achieving 10x faster subsequent compiles across strands.

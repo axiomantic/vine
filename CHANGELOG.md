@@ -43,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Internal Metadata Filtering in Strand Status (`src/strand.nim`)**:
   - Updated `doStrandStatus` dirty-working-tree calculation to filter out `.vine/` and `.vine/strand.json` internal coordination files alongside `.vine.json`, `.envrc`, and `.venv`, preventing false-positive dirty strand states.
 - **Comprehensive Dual-Onboarding Documentation Suite (`AGENTS.md`, `README.md`, `docs/`)**:
-  - Authored `docs/strand_lifecycle.md` (Rift APFS CoW vs. Git worktree provisioning, vendoring fast-path, `.venv` relocatability policy), `docs/two_key_gate.md` (Key 1 `git merge-tree --write-tree` mechanical check + Key 2 live compiler/test runner cascade), `docs/cache_normalization.md` (`.envrc` ccache, Cargo, Nimcache, and uv link-mode normalization across strands), and `docs/cli_reference.md` (complete CLI command & exit code reference).
+  - Authored `docs/strand_lifecycle.md` (Rift CoW vs. Git worktree provisioning, vendoring fast-path, `.venv` relocatability policy), `docs/two_key_gate.md` (Key 1 `git merge-tree --write-tree` mechanical check + Key 2 live compiler/test runner cascade), `docs/cache_normalization.md` (`.envrc` ccache, Cargo, Nimcache, and uv link-mode normalization across strands), and `docs/cli_reference.md` (complete CLI command & exit code reference).
   - Updated `AGENTS.md` and `README.md` with structured onboarding maps for both human developers and LLM agents.
 - **Test Suite Expansion (`tests/test_vine.py`)**:
   - Added identity attestation and `.vine/strand.json` dirty-status filtering test coverage.
@@ -160,8 +160,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.0] - 2026-09-26
 
 ### Added
-- **Sub-Second APFS Copy-on-Write Strands**: High-performance isolated branch workspaces (`braid new <task-id>`) created via native macOS APFS CoW cloning (`clonefile` / `cp -c -R`) and git worktrees in <80ms with 0 initial disk block consumption.
-- **Universal Dependency Cache Normalizer**: Zero-cost APFS cloning of pre-built dependency trees (`deps`, `nimbledeps`, `vendor`, `node_modules`, `.zig-cache`) directly from the canonical repository into newly spun strands in <80ms.
+- **Sub-Second Rift Copy-on-Write Strands**: High-performance isolated branch workspaces (`braid new <task-id>`) created via native Rift CoW cloning and git worktrees in <80ms with 0 initial disk block consumption.
+- **Universal Dependency Cache Normalizer**: Zero-cost Rift/reflink cloning of pre-built dependency trees (`deps`, `nimbledeps`, `vendor`, `node_modules`, `.zig-cache`) directly from the canonical repository into newly spun strands in <80ms.
 - **Two-Key Integration Gate (`braid gate`)**: Anti-green-mirage verification requiring both keys before weaving into canonical trunk:
   - **Key 1 (Mechanical)**: In-memory conflict pre-check using `git merge-tree --write-tree` in ~30ms without touching the working tree.
   - **Key 2 (Semantic)**: Automated live compilation and test suite execution inside the strand (`test_command` via `braid.toml` or heuristic detection).

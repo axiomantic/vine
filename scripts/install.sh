@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # /Users/eek/Development/vine/scripts/install.sh
-# Universal installer for Vine: Sub-Second APFS CoW Workspaces & Zero-Mirage Weaving Engine.
+# Universal installer for Vine: Sub-Second Rift Workspaces & Zero-Mirage Weaving Engine.
 set -euo pipefail
 
 REPO="axiomantic/vine"
@@ -23,7 +23,7 @@ install_rules() {
   local target_content
   target_content='# Vine Workspace & Strand Coordination Guide
 
-Vine manages zero-cost APFS copy-on-write workspaces (**Strands**), polyglot build cache normalizers, and the Two-Key integration gate for parallel agent development.
+Vine manages zero-cost Rift copy-on-write workspaces (**Strands**), polyglot build cache normalizers, and the Two-Key integration gate for parallel agent development.
 
 ## 1. Invariants & Strand Identity
 * **No Workspace-Scoped Identity Files**:
@@ -63,14 +63,14 @@ mkdir -p "$(dirname "$STRAND_DIR")"
 3. Repositories without submodules: `git worktree add "$STRAND_DIR" -b "<branch>"`.
 4. Stat cache warmup: `git -C "$STRAND_DIR" update-index --refresh >/dev/null 2>&1 || true`.
 
-### Step 3: APFS CoW Vendoring Fast-Path
+### Step 3: Reflink & Cache Vendoring Fast-Path
 Clone pre-built dependency caches from canonical repository:
 ```bash
 CANONICAL_REPO="$HOME/Development/<project>"
 VENDORED_DIRS=("deps" "nimbledeps" "vendor" "node_modules" ".zig-cache")
 for vdir in "${VENDORED_DIRS[@]}"; do
   if [ -d "$CANONICAL_REPO/$vdir" ] && [ ! -d "$STRAND_DIR/$vdir" ]; then
-    cp -c -R "$CANONICAL_REPO/$vdir" "$STRAND_DIR/$vdir"
+    cp -c -R "$CANONICAL_REPO/$vdir" "$STRAND_DIR/$vdir" 2>/dev/null || cp -a --reflink=auto "$CANONICAL_REPO/$vdir" "$STRAND_DIR/$vdir" 2>/dev/null || cp -R "$CANONICAL_REPO/$vdir" "$STRAND_DIR/$vdir"
   fi
 done
 ```

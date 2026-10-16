@@ -1,20 +1,21 @@
 # Vine Strand Lifecycle & Virtualization Specification
 
-> **Zero-Cost APFS Copy-on-Write Workspaces & Manifest Specification**  
+> **Zero-Cost Rift Copy-on-Write Workspaces & Manifest Specification**  
 > *A normative specification governing Strand directory layout, pre-flight checks, CoW vendoring fast-paths, `.vine.json` manifests, and collision detection.*
 
 ---
 
 ## 1. Overview & Architectural Role
 
-Vine provisions instantaneous, zero-cost isolated working environments called **Strands** using APFS Copy-on-Write (CoW) snapshots (`rift`). Strands allow dozens of autonomous coding assistants to work in parallel on the same codebase without mutating the canonical git tree, polluting the primary git index, or thrashing IDE file watchers.
+Vine provisions instantaneous, zero-cost isolated working environments called **Strands** using Rift Copy-on-Write (CoW) snapshots (`rift`). Strands allow dozens of autonomous coding assistants to work in parallel on the same codebase without mutating the canonical git tree, polluting the primary git index, or thrashing IDE file watchers.
 
 ```mermaid
 flowchart TD
     Canonical["Canonical Git Repository<br/>(~/Development/myproject)"] --> Provision["vine new task-101"]
-    Provision --> Snapshot["Rift APFS CoW Snapshot<br/>(0 bytes physical disk, ~9s)"]
+    Snapshot["Rift CoW Snapshot<br/>(0 bytes physical disk, ~9s)"]
+    Provision --> Snapshot
     Snapshot --> Warmup["Stat Cache Warmup<br/>(git update-index --refresh <15ms)"]
-    Warmup --> Vendor["Universal Vendoring Fast-Path<br/>(cp -c -R deps, node_modules)"]
+    Warmup --> Vendor["Universal Reflink & Vendoring Fast-Path<br/>(reflink/clone deps, node_modules)"]
     Vendor --> Envrc["Polyglot .envrc Setup<br/>(ccache, cargo-target, nimcache)"]
     Envrc --> Manifest[".vine.json Manifest Created"]
     Manifest --> StrandDir["Strand Working Directory<br/>(~/Development/workspaces/myproject/task-101/repo)"]
@@ -52,34 +53,34 @@ if git submodule status 2>/dev/null | grep -q '^-'; then
 fi
 ```
 
-### Step 2: APFS Copy-on-Write Clone
+### Step 2: Rift Copy-on-Write Clone
 1. **Repositories with Git Submodules (e.g. PebbleOS)**:
-   Vine uses `rift create` for native APFS CoW cloning of the working tree and `.git/modules` in ~9s with 0 extra disk blocks.
+   Vine uses `rift create` for polyglot CoW cloning of the working tree and `.git/modules` in ~9s with 0 extra disk blocks.
 2. **Monolithic Repositories without Submodules (e.g. Rhizo, Redis)**:
    Vine uses native `git worktree add <dir> -b <branch>` in ~280ms.
 
 ### Step 3: Stat Cache Warmup
-Silences APFS inode change time (`ctime`) differences in $<15\text{ ms}$:
+Silences inode change time (`ctime`) differences in $<15\text{ ms}$:
 ```bash
 git -C "$STRAND_DIR" update-index --refresh >/dev/null 2>&1 || true
 ```
 
-### Step 4: Universal APFS Vendoring Fast-Path
-Pre-built dependency caches from the canonical repository are hardlinked or cloned via APFS CoW in $<80\text{ ms}$ without consuming physical disk space:
+### Step 4: Universal Reflink & Cache Vendoring Fast-Path
+Pre-built dependency caches from the canonical repository are hardlinked or cloned via CoW/reflink in $<80\text{ ms}$ without consuming physical disk space:
 ```bash
 VENDORED_DIRS=("deps" "nimbledeps" "vendor" "node_modules" ".zig-cache")
 for vdir in "${VENDORED_DIRS[@]}"; do
   if [ -d "$CANONICAL_REPO/$vdir" ] && [ ! -d "$STRAND_DIR/$vdir" ]; then
-    cp -c -R "$CANONICAL_REPO/$vdir" "$STRAND_DIR/$vdir"
+    cp -c -R "$CANONICAL_REPO/$vdir" "$STRAND_DIR/$vdir" 2>/dev/null || cp -a --reflink=auto "$CANONICAL_REPO/$vdir" "$STRAND_DIR/$vdir" 2>/dev/null || cp -R "$CANONICAL_REPO/$vdir" "$STRAND_DIR/$vdir"
   fi
 done
 ```
 
 ### Step 5: Python Virtual Environment (`.venv`) Policy
 1. Inspects `$CANONICAL_REPO/.venv/pyvenv.cfg`.
-2. **If `relocatable = true`**: Safely APFS clones `.venv`:
+2. **If `relocatable = true`**: Safely clones `.venv`:
    ```bash
-   cp -c -R "$CANONICAL_REPO/.venv" "$STRAND_DIR/.venv"
+   cp -c -R "$CANONICAL_REPO/.venv" "$STRAND_DIR/.venv" 2>/dev/null || cp -a --reflink=auto "$CANONICAL_REPO/.venv" "$STRAND_DIR/.venv" 2>/dev/null || cp -R "$CANONICAL_REPO/.venv" "$STRAND_DIR/.venv"
    ```
 3. **If NOT relocatable**: Prevents blind-copying (to avoid mutating parent shebangs).
    - If `venv_policy = "recreate"`: Runs `UV_VENV_RELOCATABLE=1 uv venv "$STRAND_DIR/.venv"` (~12ms).

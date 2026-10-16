@@ -1,5 +1,5 @@
 # /Users/eek/Development/vine/src/vine.nim
-# Vine — Sub-Second APFS CoW Workspaces & Zero-Mirage Git Weaving Engine.
+# Vine — Sub-Second Rift Workspaces & Zero-Mirage Git Weaving Engine.
 
 import std/[os, strutils, json, sequtils]
 import strand, gate, weave, guide, config
@@ -7,7 +7,7 @@ import strand, gate, weave, guide, config
 const Version = "0.2.9"
 
 proc printHelp() =
-  echo "Vine v" & Version & " — Sub-Second APFS CoW Workspaces & Zero-Mirage Git Weaving"
+  echo "Vine v" & Version & " — Sub-Second Rift Workspaces & Zero-Mirage Git Weaving"
   echo ""
   echo "Usage:"
   echo "  vine new <task_id> [--repo <path>] [--branch <name>] [--base <ref>] [--parent <ref>] [--rift] [--worktree]"
@@ -306,7 +306,7 @@ primary_branch = "main"
 # Policy when encountering a non-relocatable .venv ("prompt", "recreate", "skip")
 venv_policy = "prompt"
 
-# Vendored directories for the APFS CoW fast-path
+# Vendored directories for the Rift / CoW fast-path
 vendor_dirs = ["deps", "nimbledeps", "vendor", "node_modules", ".zig-cache"]
 
 [verification]

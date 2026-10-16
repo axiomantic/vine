@@ -20,7 +20,7 @@ All `vine` commands accept the following global flags:
 ## 2. Command Catalog
 
 ### `vine new <task-id>`
-Provisions an isolated APFS copy-on-write strand for a task.
+Provisions an isolated Rift copy-on-write strand for a task.
 ```bash
 vine new task-1049 [--repo <dir>] [--branch <name>] [--parent <branch>] [--worktree] [--clean]
 ```
@@ -88,7 +88,7 @@ Cleans up merged, abandoned, or orphaned workspace directories.
 vine prune [--all] [--dry-run]
 ```
 - Removes workspaces whose branches have been merged or deleted.
-- Calls `rift prune` to free APFS snapshot metadata.
+- Calls `rift prune` to free snapshot metadata.
 
 ### `vine guide install`
 Installs or updates the canonical `VINE GUIDE` block in the repository's `AGENTS.md`.

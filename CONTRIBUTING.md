@@ -6,7 +6,7 @@ We welcome contributions to Vine! Vine provides zero-cost Rift copy-on-write wor
 
 ## Development Prerequisites
 
-- **Operating System**: macOS (Apple Silicon or Intel) or Linux with copy-on-write filesystem support (APFS, Btrfs, XFS reflink). Windows is supported via native `git worktree` fallback.
+- **Operating System**: macOS (Apple Silicon or Intel), Linux (Btrfs, XFS, ZFS reflink/CoW), or Windows (ReFS block cloning or native `git worktree` fallback).
 - **Nim Compiler**: Pinned to **2.2+** (managed via [`mise`](https://mise.jdx.dev) via `.tool-versions` or `choosenim`).
 - **Git**: **2.38+** (required for `git merge-tree --write-tree` mechanical conflict verification).
 - **Python**: **3.10+** (Python 3.12 recommended for pytest integration suites and Tripwire verification).

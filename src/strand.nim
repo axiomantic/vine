@@ -119,7 +119,7 @@ proc doStrandNew*(
   # Stat Cache Warmup
   discard execCmdEx("git -C " & quoteShell(strandDir) & " update-index --refresh")
 
-  # APFS CoW Vendoring Fast-Path
+  # Rift / CoW Vendoring Fast-Path
   for vdir in cfg.vendorDirs:
     let srcV = repoDir / vdir
     let dstV = strandDir / vdir
