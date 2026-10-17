@@ -5,18 +5,18 @@
 import std/[os, strutils]
 
 const
-  GuideVersion* = "v1.5"
+  GuideVersion* = "v1.6"
   BeginMarker* = "<!-- BEGIN VINE GUIDE [" & GuideVersion & "] -->"
   EndMarker* = "<!-- END VINE GUIDE -->"
   MarkerPrefix* = "<!-- BEGIN VINE GUIDE"
 
 const CanonicalGuideContent* = """
-<!-- BEGIN VINE GUIDE [v1.5] -->
+<!-- BEGIN VINE GUIDE [v1.6] -->
 <!-- DO NOT EDIT DIRECTLY: Managed by `vine guide install` -->
 
 ## Vine Workspace & Strand Coordination Guide
 
-Vine manages zero-cost Rift copy-on-write workspaces (**Strands**), polyglot build cache normalizers, and the Two-Key integration gate for parallel agent development.
+Vine manages zero-cost Rift copy-on-write workspaces (**Strands**), polyglot build cache normalizers, and the Three-Key integration gate for parallel agent development.
 
 ### 0. Self-Bootstrapping Prerequisite
 This project requires `rhizo` and `vine`. If `command -v rhizo` or `command -v vine` fails, install them via npm:
@@ -41,6 +41,10 @@ npm install -g @axiomantic/rhizo @axiomantic/vine
   If an assigned task has an active `.vine.json`, re-anchor to that directory instead of touching the canonical repository root.
 * **Closed-Circuit Two-Point Diff & Holistic Integration Mandate**:
   Never construct isolated code in a vacuum. Every strand deliverable must contain both a Provider (new capability) and an active Consumer call-site (live entrypoint, router, CLI dispatcher, or UI). Modules tested solely by their own test suites are strictly prohibited as incomplete shelfware. Furthermore, the integration must be holistic (no toys, stubs, mocks, or shallow heuristics). Any legacy or obsolete code targeted for replacement MUST be deleted in the same strand—never preserved as a vestigial fallback or commented out.
+* **Literal Fidelity & Reference Parity Mandate (Anti-Approximation)**:
+  When recreating, porting, reverse-engineering, duplicating functionality from an existing reference, or executing an operator directive where fidelity is expected, the deliverable must exhibit literal, true fidelity. Approximations ("looks right", "good enough for happy paths", or "approximate heuristic") are STRICTLY REJECTED. The implementation must literally be the thing that was asked for, matching all edge cases, type boundaries, flags, and error flows.
+* **Structural Assertion Rigor (Anti-Green-Mirage)**:
+  Partial or loose assertions ("loosey goosey" tests like `assert "foo" in bar` or `assert len(arr) > 0`) are strictly forbidden. Tests must assert complete object equality (`assert actual == expected`) and cover negative controls.
 
 ---
 
@@ -153,9 +157,9 @@ export NIMCACHE="$CACHE_ROOT/nimcache"
 
 ---
 
-### 4. Turn-End & Weaving Protocol (The Two-Key Rule)
+### 4. Turn-End & Weaving Protocol (The Three-Key Rule)
 
-Never declare a task complete or attempt to weave without passing both keys:
+Never declare a task complete or attempt to weave without passing all three keys:
 
 #### Key 1: In-Memory Conflict Gate
 ```bash
@@ -175,11 +179,17 @@ vine gate -- <custom-test-command>
 ```
 *Never bypass this gate. `git merge-tree` only verifies text mergeability, not compilation or semantic correctness.*
 
-#### Closed-Circuit Audit: Holistic Production Integration
-Verify that the strand diff introduces an active Consumer call-site, actually integrates with the system without stubs or toys, and purges all replaced legacy code.
+#### Key 3: Pre-Weave Adversarial Code Audit Pump
+Execute the Five-Pillar adversarial code audit under the presumption of guilt:
+1. **Closed-Circuit Two-Point Diff**: Active consumer call-site wired to provider.
+2. **Holistic Integration**: Real state and error handling; zero hollow mocks or naive string splits.
+3. **Literal Fidelity & Reference Parity**: Exact, uncompromised fidelity to operator directives and reference specifications (zero "good enough" approximations).
+4. **Aggressive Replacement Purge**: Obsolete legacy code and fallbacks completely deleted.
+5. **Structural Assertion Rigor**: Complete object equality (`assert actual == expected`) and negative controls.
+Remediate findings through the **Delta Re-Pump Loop** until 0 defects remain.
 
 #### Step 3: Weave into Canonical Trunk
-Once Key 1 and Key 2 pass 100% green:
+Once Key 1, Key 2, and Key 3 pass 100% green:
 ```bash
 cd "$CANONICAL_REPO"
 # Fetch branch directly from isolated Strand

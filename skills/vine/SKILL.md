@@ -27,12 +27,19 @@ npm install -g @axiomantic/rhizo @axiomantic/vine @axiomantic/garden rift-snapsh
 ## 1. Core Operational Invariants
 
 <CRITICAL>
-Never weave a strand into the canonical trunk without passing the Two-Key Gate ('vine gate' exit code 0). Key 1 verifies in-memory mechanical mergeability; Key 2 executes the project test suite. Text mergeability does not imply compilation or correctness.
+Never weave a strand into the canonical trunk without passing the Three-Key Gate:
+1. Key 1 (Mechanical): In-memory mechanical mergeability ('git merge-tree' exit code 0). Text mergeability does not imply compilation or correctness.
+2. Key 2 (Semantic): Live project compiler and test suite ('vine gate' exit code 0).
+3. Key 3 (Dialectical Code Audit Pump): Adversarial audit clearing the Five Pillars with 0 open defects under the presumption of guilt.
 </CRITICAL>
 
 <CRITICAL>
-Closed-Circuit Two-Point Diff & Holistic Integration Mandate:
-Never construct isolated code in a vacuum. Every strand deliverable must contain both a Provider (new capability) and an active Consumer call-site (live entrypoint, router, CLI dispatcher, or UI). Modules tested solely by their own test suites are strictly prohibited as incomplete shelfware. Furthermore, the integration must be holistic (no toys, stubs, mocks, or shallow heuristics). Any legacy or obsolete code targeted for replacement MUST be deleted in the same strand—never preserved as a vestigial fallback or commented out.
+Closed-Circuit Two-Point Diff, Literal Fidelity & Holistic Integration Mandate:
+1. Two-Point Diff: Every strand deliverable must contain both a Provider (new capability) and an active Consumer call-site (live entrypoint, router, CLI dispatcher, or UI). Modules tested solely by their own test suites are strictly prohibited as incomplete shelfware.
+2. Holistic Integration (Anti-Stub / Anti-Toy): The implementation must be real (no fake data mocks, shallow heuristics, artificial sleeps, or naive string splits).
+3. Literal Fidelity & True-Fidelity Mandate (Anti-Approximation): When recreating, porting, reverse-engineering, duplicating functionality, or fulfilling an operator directive, the code must exhibit literal, true fidelity. Approximations ("looks right", "good enough for happy paths") are strictly rejected. The implementation must match all edge cases, type boundaries, flags, and error flows of the original reference or prompt specification.
+4. Aggressive Replacement Purge: Any legacy or obsolete code targeted for replacement MUST be deleted in the same strand—never preserved as a vestigial fallback or commented out.
+5. Structural Assertion Rigor: Reject loose/partial assertions (`assert 'foo' in bar`). Enforce full structural equality (`assert actual == expected`) and negative controls.
 </CRITICAL>
 
 <INVARIANT>
@@ -229,21 +236,27 @@ vine new <task_id> --branch strand/<task_id>
 ```
 Navigate to the returned `strand_path` and perform all edits, compilations, and tests there.
 
-### Step 2: Verify Two-Key Gate & Closed-Circuit Audit
-Before signaling completion to the orchestrator:
-1. **Two-Key Gate**:
+### Step 2: Verify Three-Key Gate & Adversarial Audit Clearance
+Before signaling completion or requesting a trunk weave:
+1. **Key 1 & Key 2 Evaluation**:
 ```bash
 vine gate --json
 ```
-- **Exit 0**: Both Key 1 and Key 2 passed. Report pass to orchestrator.
+- **Exit 0**: Both Key 1 (mechanical merge-tree) and Key 2 (semantic compiler/test runner) passed.
 - **Exit 1**: Key 1 failed (conflicts with canonical trunk). Run `vine sync` inside strand to resolve conflicts.
 - **Exit 2**: Key 2 failed (compiler or test failure). Fix code inside strand.
 
-2. **Closed-Circuit Two-Point Diff Audit**:
-Verify that the strand diff contains both a Provider and an active Consumer call-site, holistically integrates with real application state (no mocks/stubs), and purges all replaced legacy code.
+2. **Key 3: Pre-Weave Adversarial Audit (Dialectical Code Audit Pump)**:
+Assemble the **Deliverable Claim Bundle** and verify compliance against the Five Pillars:
+- **Two-Point Diff**: Both Provider and live Consumer call-site wired.
+- **Holistic Integration**: Real state and error handling (no fake mocks or stubs).
+- **Literal Fidelity Mandate**: Literal adherence to operator directives and exact functional parity with reference specifications (zero approximations).
+- **Replacement Purge**: All obsolete code and fallbacks deleted.
+- **Structural Assertions**: Full object identity (`assert actual == expected`) and negative controls.
+Remediate any audit findings inside the strand through the **Delta Re-Pump Loop** until 0 defects remain.
 
 ### Step 3: Trunk Weaving & Post-Push CI Verification
-Once Two-Key Gate passes:
+Once all Three Keys pass (Key 1, Key 2, and Key 3 audit clearance):
 ```bash
 vine weave
 ```
