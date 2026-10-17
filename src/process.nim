@@ -3,7 +3,7 @@
 # Ensures that hung tests or frozen subprocesses are terminated with SIGKILL
 # across their entire process tree, leaving zero zombie processes or held ports.
 
-import std/[os, osproc, times, strutils]
+import std/[os, osproc, times, strutils, streams]
 when defined(posix):
   import std/posix
 
@@ -55,13 +55,10 @@ proc execCmdExWithTimeout*(
 
   when defined(posix):
     discard setpgid(pid.Pid, pid.Pid)
-
-  let fd = p.outputHandle.cint
-  when defined(posix):
+    let fd = p.outputHandle.cint
     let flags = fcntl(fd, F_GETFL, 0)
     discard fcntl(fd, F_SETFL, flags or O_NONBLOCK)
-
-  var buf: array[4096, char]
+    var buf: array[4096, char]
   var captured = ""
   var timedOut = false
   var finalExitCode = -1
