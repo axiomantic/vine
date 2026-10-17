@@ -2,7 +2,7 @@
 # Vine — Sub-Second Rift Workspaces & Zero-Mirage Git Weaving Engine.
 
 import std/[os, strutils, json, sequtils]
-import strand, gate, weave, guide, config
+import strand, gate, weave, guide, config, update
 
 const Version = "0.2.10"
 
@@ -18,6 +18,7 @@ proc printHelp() =
   echo "  vine sync [--dir <path>] [--base <ref>] [--rebase]"
   echo "  vine weave [branch] [--base <ref>] [--dir <path>] [--force]"
   echo "  vine prune [--repo <path>] [--max-age <hours>] [--apply]"
+  echo "  vine update [--check] [--apply] [--skip <pkg@ver>] [--disable] [--enable] [--json]"
   echo "  vine guide <install|uninstall|check> [path]"
   echo "  vine config <init|show> [path]"
   echo ""
@@ -119,6 +120,10 @@ proc main() =
         echo "  Commits Behind: " & $res{"commits_behind"}.getInt(0)
         echo "  Dirty Files   : " & $res{"dirty_count"}.getInt(0)
         echo "  Strand Path   : " & res{"strand_path"}.getStr("")
+        let rider = getUpdatePromptRider(Version, "vine")
+        if rider.len > 0:
+          echo ""
+          echo rider
       else:
         stderr.writeLine(pretty(res))
     quit(code)
@@ -336,6 +341,9 @@ vendor_dirs = ["deps", "nimbledeps", "vendor", "node_modules", ".zig-cache"]
       if cfg.activeConfigFile.len > 0:
         j["active_config"] = %cfg.activeConfigFile
       echo pretty(j)
+
+  of "update":
+    quit(doUpdateCommand(args[1..^1], Version, "vine"))
 
   else:
     stderr.writeLine("Unknown command: " & cmd)
