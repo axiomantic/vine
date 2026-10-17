@@ -9,31 +9,35 @@ when defined(posix):
 
 proc getDescendantPids*(pid: int): seq[int] =
   result = @[]
-  var queue = @[pid]
-  while queue.len > 0:
-    let curr = queue[0]
-    queue.delete(0)
-    let (outp, code) = execCmdEx("pgrep -P " & $curr)
-    if code == 0:
-      for line in outp.splitLines():
-        let t = line.strip()
-        if t.len > 0:
-          try:
-            let childPid = parseInt(t)
-            if childPid notin result and childPid != pid:
-              result.add(childPid)
-              queue.add(childPid)
-          except CatchableError: discard
+  when defined(posix):
+    var queue = @[pid]
+    while queue.len > 0:
+      let curr = queue[0]
+      queue.delete(0)
+      let (outp, code) = execCmdEx("pgrep -P " & $curr)
+      if code == 0:
+        for line in outp.splitLines():
+          let t = line.strip()
+          if t.len > 0:
+            try:
+              let childPid = parseInt(t)
+              if childPid notin result and childPid != pid:
+                result.add(childPid)
+                queue.add(childPid)
+            except CatchableError: discard
+  else:
+    discard
 
 proc killProcessTree*(pid: int) =
-  let descendants = getDescendantPids(pid)
   when defined(posix):
+    let descendants = getDescendantPids(pid)
     for cpid in descendants:
       discard kill(cpid.Pid, SIGKILL)
     discard kill(-pid.Pid, SIGKILL)
     discard kill(pid.Pid, SIGKILL)
+  elif defined(windows):
+    discard execCmdEx("taskkill /F /T /PID " & $pid)
   else:
-    # Non-posix fallback
     discard
 
 proc execCmdExWithTimeout*(
@@ -86,8 +90,23 @@ proc execCmdExWithTimeout*(
               for i in 0 ..< rem: captured.add(buf[i])
             else: break
           break
+    elif defined(windows):
+      if p.hasData():
+        try:
+          let chunk = p.outputStream.readStr(4096)
+          captured.add(chunk)
+        except CatchableError: discard
+      finalExitCode = peekExitCode(p)
+      if finalExitCode != -1:
+        if p.outputStream != nil:
+          try:
+            captured.add(p.outputStream.readAll())
+          except CatchableError: discard
+        break
     else:
-      discard
+      finalExitCode = peekExitCode(p)
+      if finalExitCode != -1:
+        break
 
     let elapsed = getTime().toUnixFloat() - t0
     if timeoutSec > 0.0 and elapsed >= timeoutSec:

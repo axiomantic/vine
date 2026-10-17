@@ -4,7 +4,7 @@
 import std/[os, strutils, json, sequtils]
 import strand, gate, weave, guide, config, update
 
-const Version = "0.2.10"
+const Version = "0.2.11"
 
 proc printHelp() =
   echo "Vine v" & Version & " — Sub-Second Rift Workspaces & Zero-Mirage Git Weaving"
@@ -247,18 +247,22 @@ proc main() =
     var baseRef = ""
     var strandDir = ""
     var force = false
+    var allowNoTests = false
     var i = 1
     while i < args.len:
       let a = args[i]
       if a == "--base" and i + 1 < args.len:
         baseRef = args[i+1]; inc i
+      elif a.startsWith("--base="): baseRef = a[7..^1]
       elif a == "--dir" and i + 1 < args.len:
         strandDir = args[i+1]; inc i
+      elif a.startsWith("--dir="): strandDir = a[6..^1]
       elif a == "--force": force = true
+      elif a == "--allow-no-tests": allowNoTests = true
       elif not a.startsWith("-") and branch.len == 0:
         branch = a
       inc i
-    let (res, code) = doBraidWeave(branch, baseRef, strandDir, force)
+    let (res, code) = doBraidWeave(branch, baseRef, strandDir, force, allowNoTests)
     if code != 0:
       stderr.writeLine(pretty(res))
       quit(code)

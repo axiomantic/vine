@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.11] - 2026-10-17
+
+### Added
+- **Triad Update Checking Engine (`src/update.nim`, `src/vine.nim`)**:
+  - Unified 24-hour update cadence checking for `garden`, `rhizo`, and `vine` cached in `~/.config/axiomantic/updates.json`.
+  - Smart installation kind auto-detection (`dev_source` git checkout, `local_npm`, `homebrew`, `pnpm`, `yarn`, `bun`, `standalone_binary`, `global_npm`).
+  - Automatic `<!-- TRIAD_UPDATE_RIDER -->` prompt riders attached to `vine status` during interactive use.
+  - Full suppression in Autonomous Mode (`AUTONOMOUS_MODE=1` or `.autonomous`) and JSON mode (`--json`).
+  - Added `vine update` subcommand supporting `--check`, `--apply`, `--skip <pkg@ver>`, `--disable`, `--enable`, and `--json`.
+- **Three-Key Gate & Literal Fidelity Mandate (Vine Guide v1.6)**:
+  - Formally codified the Three-Key Gate: Key 1 Mechanical, Key 2 Semantic Test Runner, Key 3 Adversarial Code Audit Pump.
+  - Strict Literal Fidelity & Reference Parity Mandate rejecting "good enough for happy paths" approximations.
+  - Structural Assertion Rigor rejecting loose partial assertions and enforcing complete object equality.
+
+### Fixed
+- **Cross-Platform Windows Process Supervision (`src/process.nim`)**:
+  - Fixed Windows CI hang by adding `p.hasData()` and pipe draining in `execCmdExWithTimeout`.
+  - Replaced POSIX `pgrep` with `taskkill /F /T /PID` on Windows in `killProcessTree`.
+- **CLI & Test Suite Compatibility (`src/vine.nim`, `tests/test_vine.py`)**:
+  - Added `--allow-no-tests` flag pass-through to `vine weave`.
+  - Updated pytest assertions for Vine Guide v1.6 and anti-green-mirage gate requirements.
+
 ## [0.2.10] - 2026-10-17
 
 ### Added

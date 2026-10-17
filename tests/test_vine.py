@@ -45,7 +45,7 @@ def test_vine_guide_lifecycle():
         assert target.exists()
 
         content = target.read_text()
-        assert "<!-- BEGIN VINE GUIDE [v1.4] -->" in content
+        assert "<!-- BEGIN VINE GUIDE [v1.6] -->" in content
         assert "<!-- END VINE GUIDE -->" in content
         assert "Vine Workspace & Strand Coordination Guide" in content
 
@@ -171,7 +171,7 @@ def test_vine_strand_lifecycle_and_gate():
             subprocess.run(["git", "-C", strand_path, "commit", "-q", "-m", "feat: add feature"], check=True)
 
             # 3. Two-Key Gate
-            g_code, g_out, g_err = run_vine("gate", "--dir", strand_path, "--base", "main", "--json")
+            g_code, g_out, g_err = run_vine("gate", "--dir", strand_path, "--base", "main", "--allow-no-tests", "--json")
             assert g_code == 0, f"Gate failed: {g_err}\nOut: {g_out}"
             g_data = json.loads(g_out)
             assert g_data["clean"] is True
@@ -189,7 +189,7 @@ def test_vine_strand_lifecycle_and_gate():
             assert l_data["count"] >= 1
 
             # 6. Weave strand into canonical repository
-            w_code, w_out, w_err = run_vine("weave", "--dir", strand_path, "--base", "main")
+            w_code, w_out, w_err = run_vine("weave", "--dir", strand_path, "--base", "main", "--allow-no-tests")
             assert w_code == 0, f"Weave failed: {w_err}\nOut: {w_out}"
             w_data = json.loads(w_out)
             assert w_data["status"] == "woven"
@@ -437,7 +437,7 @@ def test_vine_diverged_trunk_sync_and_weave():
             subprocess.run(["git", "-C", repo_dir, "commit", "-q", "-m", "chore: independent trunk commit C_trunk"], check=True)
 
             # 4. Attempting to weave directly without sync MUST FAIL fast with clear diagnostic
-            w_code, w_out, w_err = run_vine("weave", "--dir", strand_path, "--base", "main")
+            w_code, w_out, w_err = run_vine("weave", "--dir", strand_path, "--base", "main", "--allow-no-tests")
             assert w_code != 0, f"Weave should have failed due to diverged trunk, got code {w_code}\nOut: {w_out}"
             assert "fast_forward_failed" in w_err or "diverged" in w_err
             assert "vine sync" in w_err
@@ -465,12 +465,12 @@ def test_vine_diverged_trunk_sync_and_weave():
             assert os.path.isfile(os.path.join(strand_path, "feature.txt"))
 
             # 8. Pass Two-Key Gate
-            g_code, g_out, g_err = run_vine("gate", "--dir", strand_path, "--base", "main", "--json")
+            g_code, g_out, g_err = run_vine("gate", "--dir", strand_path, "--base", "main", "--allow-no-tests", "--json")
             assert g_code == 0, f"Gate failed: {g_err}\nOut: {g_out}"
             assert json.loads(g_out)["clean"] is True
 
             # 9. Now vine weave succeeds with clean fast-forward
-            w_ok_code, w_ok_out, w_ok_err = run_vine("weave", "--dir", strand_path, "--base", "main")
+            w_ok_code, w_ok_out, w_ok_err = run_vine("weave", "--dir", strand_path, "--base", "main", "--allow-no-tests")
             assert w_ok_code == 0, f"Weave failed after sync: {w_ok_err}\nOut: {w_ok_out}"
             assert json.loads(w_ok_out)["status"] == "woven"
 
@@ -610,7 +610,7 @@ def test_vine_strand_deep_lifecycle_and_status():
             assert s_data_fail["lifecycle_state"] == "GATE_FAILED"
 
             # 5. Pass gate -> GATE_PASSED
-            g_code, g_out, _ = run_vine("gate", "--dir", strand_path, "--base", "develop", "--skip-tests", "--json")
+            g_code, g_out, _ = run_vine("gate", "--dir", strand_path, "--base", "develop", "--skip-tests", "--allow-no-tests", "--json")
             assert g_code == 0
             s_code4, s_out4, _ = run_vine("status", "--dir", strand_path, "--json")
             assert s_code4 == 0
@@ -686,8 +686,8 @@ def test_vine_cmake_test_runner_detection():
         strand_path = json.loads(out)["strand_path"]
 
         try:
-            # Gate without --skip-tests should detect ctest
-            g_code, g_out, _ = run_vine("gate", "--dir", strand_path, "--base", "main", "--skip-tests", "--json")
+            # Gate with --skip-tests and --allow-no-tests passes
+            g_code, g_out, _ = run_vine("gate", "--dir", strand_path, "--base", "main", "--skip-tests", "--allow-no-tests", "--json")
             assert g_code == 0
             g_data = json.loads(g_out)
             assert g_data["clean"] is True
@@ -780,13 +780,13 @@ def test_vine_weave_and_gate_auto_resolve_by_task_id():
             os.chdir(repo_dir)
             try:
                 # 1. Gate resolution by branch name without --dir
-                g_code, g_out, g_err = run_vine("gate", f"strand/{task_id}", "--skip-tests", "--json")
+                g_code, g_out, g_err = run_vine("gate", f"strand/{task_id}", "--skip-tests", "--allow-no-tests", "--json")
                 assert g_code == 0, f"Gate failed: {g_err}\nOut: {g_out}"
                 g_data = json.loads(g_out)
                 assert g_data["strand_path"] == strand_path
 
                 # 2. Gate resolution by task_id without --dir
-                g_code2, g_out2, g_err2 = run_vine("gate", task_id, "--skip-tests", "--json")
+                g_code2, g_out2, g_err2 = run_vine("gate", task_id, "--skip-tests", "--allow-no-tests", "--json")
                 assert g_code2 == 0, f"Gate by task_id failed: {g_err2}\nOut: {g_out2}"
                 g_data2 = json.loads(g_out2)
                 assert g_data2["strand_path"] == strand_path
