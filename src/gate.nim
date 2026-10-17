@@ -2,7 +2,14 @@
 # The Two-Key Integration Gate for Braid (Zero Green Mirage).
 
 import std/[os, osproc, strutils, json, times]
-import config, strand, crypto
+import config, strand, crypto, process
+
+const
+  ExitGateSuccess* = 0
+  ExitGateConflict* = 1
+  ExitGateFailure* = 2
+  ExitGateTwoPointViolation* = 3
+  ExitGateTimeout* = 4
 
 proc detectTestCommand*(dir: string): string =
   if fileExists(dir / "Cargo.toml"): return "cargo test"
@@ -26,7 +33,8 @@ proc doBraidGate*(
   skipTests: bool = false,
   testCmdParam: string = "",
   allowNoTests: bool = false,
-  allowTestOnly: bool = false
+  allowTestOnly: bool = false,
+  timeoutSecParam: float = 0.0
 ): tuple[output: JsonNode, exitCode: int] =
   var strandDir = if strandDirParam.len > 0: strandDirParam.normalizedPath else: getCurrentDir()
   var manifestPath = strandDir / ".vine.json"
@@ -59,6 +67,16 @@ proc doBraidGate*(
                 else: "HEAD"
 
   let cfg = loadVineConfig(findVineConfigPath(strandDir))
+
+  var effectiveTimeout = 180.0
+  let envTimeout = getEnv("VINE_GATE_TIMEOUT", "")
+  if envTimeout.len > 0:
+    try: effectiveTimeout = parseFloat(envTimeout)
+    except CatchableError: discard
+  if cfg.gateTimeout > 0.0:
+    effectiveTimeout = cfg.gateTimeout
+  if timeoutSecParam > 0.0:
+    effectiveTimeout = timeoutSecParam
 
   # Track gate evaluation in manifest if present
   if manifest != nil:
@@ -217,14 +235,45 @@ proc doBraidGate*(
                   else: detectTestCommand(strandDir)
     if testCmd.len > 0:
       res["test_command"] = %testCmd
-      let tTest0 = getTime().toUnixFloat()
-      let (tOut, tCode) = try:
-        execCmdEx(testCmd, workingDir = strandDir)
+      let (tOut, tCode, timedOut, elapsedSec) = try:
+        execCmdExWithTimeout(testCmd, timeoutSec = effectiveTimeout, workingDir = strandDir)
       except CatchableError as e:
-        (e.msg, 1)
+        (e.msg, 1, false, 0.0)
       testOutput = tOut
-      let testDurationMs = (getTime().toUnixFloat() - tTest0) * 1000.0
+      let testDurationMs = elapsedSec * 1000.0
       res["test_duration_ms"] = %testDurationMs
+
+      if timedOut:
+        let forensicEnvelope =
+          "================================================================================\n" &
+          "🚨 [GATE TIMEOUT] Semantic Test Suite Frozen\n" &
+          "================================================================================\n" &
+          "Command      : " & testCmd & "\n" &
+          "Elapsed Time : " & formatFloat(elapsedSec, ffDecimal, 2) & "s (timeout threshold: " & formatFloat(effectiveTimeout, ffDecimal, 1) & "s)\n" &
+          "--------------------------------------------------------------------------------\n" &
+          "CAPTURED OUTPUT UP TO FREEZE POINT:\n" &
+          (if tOut.strip().len > 0: tOut.strip() else: "(no output captured before freeze)") & "\n" &
+          "--------------------------------------------------------------------------------\n" &
+          "[GATE TIMEOUT] Semantic test suite frozen. Do NOT bypass or skip tests. Investigate deadlocks, port collisions, unhandled socket hangs, or infinite loops.\n" &
+          "================================================================================"
+
+        res["status"] = %"gate_timeout"
+        res["clean"] = %false
+        res["key2_semantic"] = %"TIMEOUT"
+        res["timeout_sec"] = %effectiveTimeout
+        res["elapsed_sec"] = %elapsedSec
+        res["compiler_output"] = %forensicEnvelope
+        res["forensic_envelope"] = %forensicEnvelope
+
+        if manifest != nil:
+          manifest["status"] = %"GATE_TIMEOUT"
+          manifest["lifecycle_state"] = %"GATE_TIMEOUT"
+          manifest["timed_out_command"] = %testCmd
+          manifest["timeout_elapsed_sec"] = %elapsedSec
+          try: writeFile(manifestPath, pretty(manifest))
+          except CatchableError: discard
+
+        return (res, EXIT_GATE_TIMEOUT)
 
       if tCode != 0:
         res["status"] = %"semantic_failure"

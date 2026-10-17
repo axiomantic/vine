@@ -9,6 +9,7 @@ type
     vendorDirs*: seq[string]
     testCommand*: string
     activeConfigFile*: string
+    gateTimeout*: float
 
   BraidConfig* = VineConfig
 
@@ -98,7 +99,8 @@ proc loadVineConfig*(configPath: string = ""): VineConfig =
     venvPolicy: "prompt",
     vendorDirs: @["deps", "nimbledeps", "vendor", "node_modules", ".zig-cache"],
     testCommand: "",
-    activeConfigFile: ""
+    activeConfigFile: "",
+    gateTimeout: 180.0
   )
 
   let envConfig = getEnv("VINE_CONFIG", "")
@@ -121,6 +123,10 @@ proc loadVineConfig*(configPath: string = ""): VineConfig =
           if v.len > 0: result.vendorDirs = parseStringList(v)
         of "test_command", "testcommand", "build_command":
           if v.len > 0: result.testCommand = v
+        of "gate_timeout", "gatetimeout", "timeout", "test_timeout", "testtimeout":
+          if v.len > 0:
+            try: result.gateTimeout = parseFloat(v)
+            except CatchableError: discard
         else:
           discard
 
@@ -133,6 +139,11 @@ proc loadVineConfig*(configPath: string = ""): VineConfig =
 
   let envVenv = getEnv("VINE_VENV_POLICY", "")
   if envVenv.len > 0: result.venvPolicy = envVenv.toLowerAscii
+
+  let envTimeout = getEnv("VINE_GATE_TIMEOUT", "")
+  if envTimeout.len > 0:
+    try: result.gateTimeout = parseFloat(envTimeout)
+    except CatchableError: discard
 
 proc loadBraidConfig*(configPath: string = ""): BraidConfig =
   loadVineConfig(configPath)

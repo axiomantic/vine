@@ -1,5 +1,5 @@
 # Package
-version       = "0.2.9"
+version       = "0.2.10"
 author        = "Axiomantic"
 description   = "Zero-Cost Rift CoW Workspaces & Zero-Mirage Git Weaving Engine"
 license       = "MIT"
@@ -12,6 +12,7 @@ requires "nim >= 2.0.0"
 
 task test, "Run test suite":
   exec "nim r tests/test_vine_tripwire.nim"
+  exec "nim r tests/test_gate_advanced.nim"
 
 after build:
   when defined(macosx) or defined(darwin):

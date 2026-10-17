@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.10] - 2026-10-17
+
+### Added
+- **Forensic Timeout Rail for Two-Key Gate (`src/process.nim`, `src/gate.nim`, `src/vine.nim`)**:
+  - Replaced bare `execCmdEx` test execution with supervised `execCmdExWithTimeout` using process group supervision and recursive child process tree termination (`killProcessTree` via `pgrep -P` and `SIGKILL`).
+  - Added configurable timeout thresholds: default 180s, overridable via `--timeout <sec>` CLI flag and `VINE_GATE_TIMEOUT` environment variable.
+  - Added dedicated exit code `4` (`ExitGateTimeout` / `EXIT_GATE_TIMEOUT`) and strand manifest lifecycle state `GATE_TIMEOUT`.
+  - Structured Forensic Crash Envelope: captures and dumps exact elapsed time, command that timed out, and all stdout/stderr captured up to the freeze point to pinpoint deadlocks, port collisions, or unhandled hangs.
+  - Added Tripwire-verified test coverage in `tests/test_gate_advanced.nim` asserting that frozen commands terminate at timeout and update manifest state.
+
 ## [0.2.9] - 2026-10-14
 
 ### Added

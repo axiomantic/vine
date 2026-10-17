@@ -4,7 +4,7 @@
 import std/[os, strutils, json, sequtils]
 import strand, gate, weave, guide, config
 
-const Version = "0.2.9"
+const Version = "0.2.10"
 
 proc printHelp() =
   echo "Vine v" & Version & " — Sub-Second Rift Workspaces & Zero-Mirage Git Weaving"
@@ -14,7 +14,7 @@ proc printHelp() =
   echo "  vine list [--repo <path>] [--all]"
   echo "  vine status [task_id|path] [--dir <path>] [--json]"
   echo "  vine collisions [--repo <path>] [--json]"
-  echo "  vine gate [branch] [--base <ref>] [--dir <path>] [--skip-tests] [--allow-no-tests] [--allow-test-only] [--test-command <cmd>] [--json] [-- <command...>]"
+  echo "  vine gate [branch] [--base <ref>] [--dir <path>] [--timeout <sec>] [--skip-tests] [--allow-no-tests] [--allow-test-only] [--test-command <cmd>] [--json] [-- <command...>]"
   echo "  vine sync [--dir <path>] [--base <ref>] [--rebase]"
   echo "  vine weave [branch] [--base <ref>] [--dir <path>] [--force]"
   echo "  vine prune [--repo <path>] [--max-age <hours>] [--apply]"
@@ -157,6 +157,7 @@ proc main() =
     var skipTests = false
     var allowNoTests = false
     var allowTestOnly = false
+    var timeoutSec = 0.0
     var testCmd = ""
     var jsonOut = false
     var i = 1
@@ -175,6 +176,13 @@ proc main() =
       elif a == "--test-command" and i + 1 < args.len:
         testCmd = args[i+1]; inc i
       elif a.startsWith("--test-command="): testCmd = a[15..^1]
+      elif (a == "--timeout" or a == "-t") and i + 1 < args.len:
+        try: timeoutSec = parseFloat(args[i+1])
+        except CatchableError: discard
+        inc i
+      elif a.startsWith("--timeout="):
+        try: timeoutSec = parseFloat(a[10..^1])
+        except CatchableError: discard
       elif a == "--skip-tests": skipTests = true
       elif a == "--allow-no-tests": allowNoTests = true
       elif a == "--allow-test-only": allowTestOnly = true
@@ -182,7 +190,7 @@ proc main() =
       elif not a.startsWith("-") and branch.len == 0:
         branch = a
       inc i
-    let (res, code) = doBraidGate(branch, baseRef, strandDir, skipTests, testCmd, allowNoTests, allowTestOnly)
+    let (res, code) = doBraidGate(branch, baseRef, strandDir, skipTests, testCmd, allowNoTests, allowTestOnly, timeoutSec)
     if jsonOut:
       echo pretty(res)
     else:
@@ -202,6 +210,8 @@ proc main() =
       elif code == 3:
         stderr.writeLine("[VIOLATION] Two-Point Diff Verification Failed:")
         stderr.writeLine(res{"two_point_diff_error"}.getStr())
+      elif code == 4:
+        stderr.writeLine(res{"forensic_envelope"}.getStr(res{"compiler_output"}.getStr()))
     quit(code)
 
   of "sync", "rebase":
