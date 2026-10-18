@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.12] - 2026-10-18
+
+### Added
+- **Pre-Weave Changelog Gate (`src/gate.nim`, `src/config.nim`, `src/vine.nim`)**:
+  - Gated changelog verification in `vine gate` (and `vine weave`): detects repository changelog files (`CHANGELOG.md`, `changelog.md`, `CHANGES.md`, etc.).
+  - Enforces that any strand with changes must modify the changelog under the `## [Unreleased]` section (or equivalent).
+  - Rejects missing changelog modifications with dedicated exit code `5` (`ExitGateChangelogViolation` / `GATE_CHANGELOG_VIOLATION`).
+  - Added `--allow-no-changelog` CLI flag, `allow_no_changelog` config option in `vine.toml`, and `VINE_ALLOW_NO_CHANGELOG` environment variable to bypass checks when changes are internal or test-only.
+  - Added `--ensure-unreleased` flag to `vine gate` to automatically scaffold `## [Unreleased]` if missing.
+- **First-Class `vine changelog` Subcommand (`src/gate.nim`, `src/vine.nim`)**:
+  - `vine changelog [entry]`: Appends bulleted changelog entries under target section (defaults to `## [Unreleased]`, configurable via `--section <name>`).
+  - `--ensure-unreleased`: Scaffolds `## [Unreleased]` before the first version heading if not already present.
+  - `--check`: Validates whether the changelog exists, has an unreleased section, and is modified in git diff.
+- **Vine Guide v1.7 (`src/guide.nim`)**:
+  - Codified the Pre-Weave Changelog Invariant in Section 1 and Section 4 of the canonical guide.
+- **Tripwire-Supervised Test Suite (`tests/test_changelog_gate.nim`)**:
+  - Comprehensive unit and integration test suite asserting `hasUnreleasedSection`, `ensureUnreleasedSection`, `addChangelogEntry`, `doChangelogOperation`, and `doBraidGate` exit code 5 enforcement and bypass invariants.
+
 ## [0.2.11] - 2026-10-17
 
 ### Added

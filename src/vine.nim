@@ -4,7 +4,7 @@
 import std/[os, strutils, json, sequtils]
 import strand, gate, weave, guide, config, update
 
-const Version = "0.2.11"
+const Version = "0.2.12"
 
 proc printHelp() =
   echo "Vine v" & Version & " — Sub-Second Rift Workspaces & Zero-Mirage Git Weaving"
@@ -14,9 +14,10 @@ proc printHelp() =
   echo "  vine list [--repo <path>] [--all]"
   echo "  vine status [task_id|path] [--dir <path>] [--json]"
   echo "  vine collisions [--repo <path>] [--json]"
-  echo "  vine gate [branch] [--base <ref>] [--dir <path>] [--timeout <sec>] [--skip-tests] [--allow-no-tests] [--allow-test-only] [--test-command <cmd>] [--json] [-- <command...>]"
+  echo "  vine gate [branch] [--base <ref>] [--dir <path>] [--timeout <sec>] [--skip-tests] [--allow-no-tests] [--allow-test-only] [--allow-no-changelog] [--ensure-unreleased] [--test-command <cmd>] [--json] [-- <command...>]"
   echo "  vine sync [--dir <path>] [--base <ref>] [--rebase]"
-  echo "  vine weave [branch] [--base <ref>] [--dir <path>] [--force]"
+  echo "  vine weave [branch] [--base <ref>] [--dir <path>] [--force] [--allow-no-tests] [--allow-no-changelog]"
+  echo "  vine changelog [entry] [--dir <path>] [--section <sec>] [--ensure-unreleased] [--check]"
   echo "  vine prune [--repo <path>] [--max-age <hours>] [--apply]"
   echo "  vine update [--check] [--apply] [--skip <pkg@ver>] [--disable] [--enable] [--json]"
   echo "  vine guide <install|uninstall|check> [path]"
@@ -162,6 +163,8 @@ proc main() =
     var skipTests = false
     var allowNoTests = false
     var allowTestOnly = false
+    var allowNoChangelog = false
+    var autoEnsureUnreleased = false
     var timeoutSec = 0.0
     var testCmd = ""
     var jsonOut = false
@@ -191,11 +194,13 @@ proc main() =
       elif a == "--skip-tests": skipTests = true
       elif a == "--allow-no-tests": allowNoTests = true
       elif a == "--allow-test-only": allowTestOnly = true
+      elif a == "--allow-no-changelog": allowNoChangelog = true
+      elif a == "--ensure-unreleased": autoEnsureUnreleased = true
       elif a == "--json": jsonOut = true
       elif not a.startsWith("-") and branch.len == 0:
         branch = a
       inc i
-    let (res, code) = doBraidGate(branch, baseRef, strandDir, skipTests, testCmd, allowNoTests, allowTestOnly, timeoutSec)
+    let (res, code) = doBraidGate(branch, baseRef, strandDir, skipTests, testCmd, allowNoTests, allowTestOnly, timeoutSec, allowNoChangelog, autoEnsureUnreleased)
     if jsonOut:
       echo pretty(res)
     else:
@@ -204,6 +209,8 @@ proc main() =
         echo "  Mechanical: Clean (tree: " & res{"merge_tree_sha"}.getStr("") & " in " & $res{"mechanical_gate_ms"}.getFloat() & " ms)"
         if res.hasKey("test_command"):
           echo "  Semantic  : 100% Green (" & res{"test_command"}.getStr() & " in " & $res{"test_duration_ms"}.getFloat() & " ms)"
+        if res.hasKey("changelog_gate"):
+          echo "  Changelog : " & res{"changelog_gate"}.getStr()
         if res.hasKey("gate_token"):
           echo "  Gate Token: " & res{"gate_token"}.getStr()
       elif code == 1:
@@ -217,6 +224,9 @@ proc main() =
         stderr.writeLine(res{"two_point_diff_error"}.getStr())
       elif code == 4:
         stderr.writeLine(res{"forensic_envelope"}.getStr(res{"compiler_output"}.getStr()))
+      elif code == 5:
+        stderr.writeLine("[VIOLATION] Changelog Gate Verification Failed:")
+        stderr.writeLine(res{"changelog_error"}.getStr())
     quit(code)
 
   of "sync", "rebase":
@@ -248,6 +258,7 @@ proc main() =
     var strandDir = ""
     var force = false
     var allowNoTests = false
+    var allowNoChangelog = false
     var i = 1
     while i < args.len:
       let a = args[i]
@@ -259,14 +270,47 @@ proc main() =
       elif a.startsWith("--dir="): strandDir = a[6..^1]
       elif a == "--force": force = true
       elif a == "--allow-no-tests": allowNoTests = true
+      elif a == "--allow-no-changelog": allowNoChangelog = true
       elif not a.startsWith("-") and branch.len == 0:
         branch = a
       inc i
-    let (res, code) = doBraidWeave(branch, baseRef, strandDir, force, allowNoTests)
+    let (res, code) = doBraidWeave(branch, baseRef, strandDir, force, allowNoTests, allowNoChangelog)
     if code != 0:
       stderr.writeLine(pretty(res))
       quit(code)
     echo pretty(res)
+
+  of "changelog", "news":
+    var entry = ""
+    var strandDir = ""
+    var section = "Added"
+    var ensureUnreleased = false
+    var checkOnly = false
+    var baseRef = ""
+    var i = 1
+    while i < args.len:
+      let a = args[i]
+      if a == "--ensure-unreleased": ensureUnreleased = true
+      elif a == "--check": checkOnly = true
+      elif (a == "--section" or a == "-s") and i + 1 < args.len:
+        section = args[i+1]; inc i
+      elif a.startsWith("--section="): section = a[10..^1]
+      elif (a == "--dir" or a == "-d" or a == "--repo" or a == "-r") and i + 1 < args.len:
+        strandDir = args[i+1]; inc i
+      elif a.startsWith("--dir="): strandDir = a[6..^1]
+      elif a.startsWith("--repo="): strandDir = a[7..^1]
+      elif (a == "--base" or a == "-b") and i + 1 < args.len:
+        baseRef = args[i+1]; inc i
+      elif a.startsWith("--base="): baseRef = a[7..^1]
+      elif not a.startsWith("-") and entry.len == 0:
+        entry = a
+      inc i
+    let (msg, code) = doChangelogOperation(strandDir, entry, section, ensureUnreleased, checkOnly, baseRef)
+    if code == 0:
+      echo msg
+    else:
+      stderr.writeLine msg
+    quit(code)
 
   of "prune", "sweep":
     var repoDir = ""

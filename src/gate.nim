@@ -10,6 +10,174 @@ const
   ExitGateFailure* = 2
   ExitGateTwoPointViolation* = 3
   ExitGateTimeout* = 4
+  ExitGateChangelogViolation* = 5
+
+const ChangelogFilenames* = [
+  "CHANGELOG.md", "changelog.md",
+  "CHANGES.md", "changes.md",
+  "HISTORY.md", "history.md",
+  "NEWS.md", "news.md"
+]
+
+proc findChangelogFile*(dir: string): string =
+  for fn in ChangelogFilenames:
+    if fileExists(dir / fn):
+      return fn
+  return ""
+
+proc hasUnreleasedSection*(content: string): bool =
+  for line in content.splitLines():
+    let t = line.strip()
+    if t.startsWith("## "):
+      var heading = t[3..^1].strip().toLowerAscii
+      if heading.startsWith("[") and heading.find(']') > 0:
+        heading = heading[1 ..< heading.find(']')].strip()
+      if heading == "unreleased" or heading.startsWith("unreleased"):
+        return true
+  return false
+
+proc ensureUnreleasedSection*(content: string): string =
+  if hasUnreleasedSection(content):
+    return content
+
+  var lines = content.splitLines()
+  var insertIdx = -1
+
+  for i, line in lines:
+    let t = line.strip()
+    if t.startsWith("## "):
+      let lower = t.toLowerAscii
+      if not lower.contains("changelog") and not lower.contains("table of contents"):
+        insertIdx = i
+        break
+
+  if insertIdx >= 0:
+    lines = lines[0 ..< insertIdx] & @["## [Unreleased]", "", "### Added", ""] & lines[insertIdx .. ^1]
+  else:
+    if lines.len > 0 and lines[^1].strip().len > 0:
+      lines.add("")
+    lines.add("## [Unreleased]")
+    lines.add("")
+    lines.add("### Added")
+    lines.add("")
+
+  return lines.join("\n")
+
+proc addChangelogEntry*(content: string, entry: string, section: string = "Added"): string =
+  let ensured = ensureUnreleasedSection(content)
+  var lines = ensured.splitLines()
+
+  var unreleasedIdx = -1
+  var nextReleaseIdx = lines.len
+
+  for i, line in lines:
+    let t = line.strip()
+    if t.startsWith("## "):
+      var heading = t[3..^1].strip().toLowerAscii
+      if heading.startsWith("[") and heading.find(']') > 0:
+        heading = heading[1 ..< heading.find(']')].strip()
+      if heading == "unreleased" or heading.startsWith("unreleased"):
+        unreleasedIdx = i
+      elif unreleasedIdx >= 0:
+        nextReleaseIdx = i
+        break
+
+  if unreleasedIdx < 0:
+    return content & "\n\n## [Unreleased]\n\n### " & section & "\n- " & entry & "\n"
+
+  let effSection = if section.strip().len > 0: section.strip() else: "Added"
+  let targetSecHeader = "### " & effSection
+
+  var secIdx = -1
+  for i in (unreleasedIdx + 1) ..< nextReleaseIdx:
+    let t = lines[i].strip()
+    if t.startsWith("### "):
+      let secName = t[4..^1].strip().toLowerAscii
+      if secName == effSection.toLowerAscii or secName == ("[" & effSection.toLowerAscii & "]"):
+        secIdx = i
+        break
+
+  let entryLine = "- " & entry.strip()
+
+  if secIdx >= 0:
+    var insertAt = secIdx + 1
+    while insertAt < nextReleaseIdx:
+      let t = lines[insertAt].strip()
+      if t.startsWith("- ") or t.startsWith("* "):
+        inc insertAt
+      elif t.len == 0 and insertAt + 1 < nextReleaseIdx and (lines[insertAt + 1].strip().startsWith("- ") or lines[insertAt + 1].strip().startsWith("* ")):
+        inc insertAt
+      else:
+        break
+    lines.insert(entryLine, insertAt)
+  else:
+    var insertAt = unreleasedIdx + 1
+    while insertAt < nextReleaseIdx and lines[insertAt].strip().len == 0:
+      inc insertAt
+    lines = lines[0 ..< insertAt] & @[targetSecHeader, entryLine, ""] & lines[insertAt .. ^1]
+
+  return lines.join("\n")
+
+proc doChangelogOperation*(
+  dir: string = "",
+  entry: string = "",
+  section: string = "Added",
+  ensureUnreleased: bool = false,
+  checkOnly: bool = false,
+  baseRefParam: string = ""
+): tuple[output: string, exitCode: int] =
+  let targetDir = if dir.len > 0: dir.normalizedPath else: getCurrentDir()
+  var changelogFile = findChangelogFile(targetDir)
+
+  if checkOnly:
+    if changelogFile.len == 0:
+      return ("No changelog file detected in project.", 0)
+    let fullPath = targetDir / changelogFile
+    let content = try: readFile(fullPath) except CatchableError as e: return ("Error reading " & fullPath & ": " & e.msg, 1)
+    if not hasUnreleasedSection(content):
+      return ("Violation: " & changelogFile & " is missing '## [Unreleased]' section.", ExitGateChangelogViolation)
+    let baseRef = if baseRefParam.len > 0: baseRefParam else: "HEAD"
+    let diffCmd = "git -C " & quoteShell(targetDir) & " diff --name-only " & quoteShell(baseRef)
+    let (dOut, dCode) = execCmdEx(diffCmd)
+    if dCode == 0:
+      for line in dOut.splitLines():
+        let norm = line.strip().replace('\\', '/').toLowerAscii
+        if norm == changelogFile.toLowerAscii or norm.endsWith("/" & changelogFile.toLowerAscii):
+          return ("Clean: " & changelogFile & " is modified in diff against " & baseRef, 0)
+    return ("Violation: " & changelogFile & " is NOT modified in diff against " & baseRef, ExitGateChangelogViolation)
+
+  if changelogFile.len == 0:
+    if entry.len > 0 or ensureUnreleased:
+      changelogFile = "CHANGELOG.md"
+      let initialContent = "# Changelog\n\nAll notable changes to this project will be documented in this file.\n\n## [Unreleased]\n\n### " & section & "\n\n"
+      writeFile(targetDir / changelogFile, initialContent)
+      if entry.len > 0:
+        let updated = addChangelogEntry(initialContent, entry, section)
+        writeFile(targetDir / changelogFile, updated)
+        return ("[CHANGELOG] Created CHANGELOG.md and added entry to '## [Unreleased]' (### " & section & ").", 0)
+      else:
+        return ("[CHANGELOG] Created CHANGELOG.md with '## [Unreleased]' section.", 0)
+    else:
+      return ("No changelog file found in repository.", 1)
+
+  let fullPath = targetDir / changelogFile
+  let content = try: readFile(fullPath) except CatchableError as e: return ("Error reading " & fullPath & ": " & e.msg, 1)
+
+  if ensureUnreleased and entry.len == 0:
+    if hasUnreleasedSection(content):
+      return ("[CHANGELOG] '## [Unreleased]' section already exists in " & changelogFile, 0)
+    let updated = ensureUnreleasedSection(content)
+    try: writeFile(fullPath, updated)
+    except CatchableError as e: return ("Error writing " & fullPath & ": " & e.msg, 1)
+    return ("[CHANGELOG] Created '## [Unreleased]' section in " & changelogFile, 0)
+
+  if entry.len > 0:
+    let updated = addChangelogEntry(content, entry, section)
+    try: writeFile(fullPath, updated)
+    except CatchableError as e: return ("Error writing " & fullPath & ": " & e.msg, 1)
+    return ("[CHANGELOG] Added entry to '## [Unreleased]' (### " & section & ") in " & changelogFile, 0)
+
+  return ("Usage: vine changelog <entry> [--section <Added|Changed|Fixed|Removed>] [--ensure-unreleased] [--check]", 1)
 
 proc detectTestCommand*(dir: string): string =
   if fileExists(dir / "Cargo.toml"): return "cargo test"
@@ -34,7 +202,9 @@ proc doBraidGate*(
   testCmdParam: string = "",
   allowNoTests: bool = false,
   allowTestOnly: bool = false,
-  timeoutSecParam: float = 0.0
+  timeoutSecParam: float = 0.0,
+  allowNoChangelog: bool = false,
+  autoEnsureUnreleased: bool = false
 ): tuple[output: JsonNode, exitCode: int] =
   var strandDir = if strandDirParam.len > 0: strandDirParam.normalizedPath else: getCurrentDir()
   var manifestPath = strandDir / ".vine.json"
@@ -132,6 +302,7 @@ proc doBraidGate*(
     let (dOut, dCode) = execCmdEx(diffCmd)
     if dCode == 0 and dOut.strip().len > 0:
       var diffFiles: seq[string] = @[]
+      var rawDiffFiles: seq[string] = @[]
       var diffStatuses: seq[tuple[status: char, path: string]] = @[]
       var appFilesChanged = 0
       var testFilesChanged = 0
@@ -144,9 +315,10 @@ proc doBraidGate*(
         if parts.len < 2: continue
         let statusCode = parts[0][0]
         let filePath = parts[1].strip()
+        let normPath = filePath.replace('\\', '/')
+        rawDiffFiles.add(normPath)
 
         # Ignore coordination metadata & root non-source files
-        let normPath = filePath.replace('\\', '/')
         if normPath in [".vine.json", ".envrc", ".gitignore", "vine.toml", "README.md", "LICENSE"] or
            normPath.startsWith(".git") or normPath.startsWith(".rhizo"):
           continue
@@ -220,10 +392,66 @@ proc doBraidGate*(
           return (res, 3)
 
       res["two_point_diff"] = %"PASS"
+
+      # --- CHANGELOG GATE (Unreleased Section Verification) ---
+      let changelogFile = findChangelogFile(strandDir)
+      let effectiveAllowNoChangelog = allowNoChangelog or cfg.allowNoChangelog
+
+      if changelogFile.len > 0:
+        res["changelog_file"] = %changelogFile
+        var changelogChanged = false
+        for p in rawDiffFiles:
+          let low = p.toLowerAscii
+          if low == changelogFile.toLowerAscii or low.endsWith("/" & changelogFile.toLowerAscii):
+            changelogChanged = true
+            break
+
+        if not effectiveAllowNoChangelog:
+          if not changelogChanged:
+            res["status"] = %"changelog_violation"
+            res["clean"] = %false
+            res["changelog_gate"] = %"FAIL"
+            res["changelog_error"] = %("Changelog Gate Violation: Repository contains '" & changelogFile &
+              "', but this strand diff does not include a changelog update. Record your deliverable under the '## [Unreleased]' section (or run 'vine changelog \"<entry>\"' or pass --allow-no-changelog).")
+            if manifest != nil:
+              manifest["status"] = %"GATE_FAILED"
+              manifest["lifecycle_state"] = %"GATE_FAILED"
+              try: writeFile(manifestPath, pretty(manifest))
+              except CatchableError: discard
+            return (res, ExitGateChangelogViolation)
+
+          let changelogFullPath = strandDir / changelogFile
+          if fileExists(changelogFullPath):
+            let clContent = readFile(changelogFullPath)
+            if not hasUnreleasedSection(clContent):
+              if autoEnsureUnreleased:
+                let updated = ensureUnreleasedSection(clContent)
+                writeFile(changelogFullPath, updated)
+                res["changelog_gate"] = %"PASS (auto-ensured unreleased section)"
+              else:
+                res["status"] = %"changelog_violation"
+                res["clean"] = %false
+                res["changelog_gate"] = %"FAIL"
+                res["changelog_error"] = %("Changelog Gate Violation: '" & changelogFile &
+                  "' is modified in strand, but is missing an '## [Unreleased]' section. Add or run 'vine changelog --ensure-unreleased'.")
+                if manifest != nil:
+                  manifest["status"] = %"GATE_FAILED"
+                  manifest["lifecycle_state"] = %"GATE_FAILED"
+                  try: writeFile(manifestPath, pretty(manifest))
+                  except CatchableError: discard
+                return (res, ExitGateChangelogViolation)
+            else:
+              res["changelog_gate"] = %"PASS"
+        else:
+          res["changelog_gate"] = %"SKIPPED (allow-no-changelog)"
+      else:
+        res["changelog_gate"] = %"SKIPPED (no changelog in repository)"
     else:
       res["two_point_diff"] = %"PASS"
+      res["changelog_gate"] = %"SKIPPED (no changes in diff)"
   else:
     res["two_point_diff"] = %"SKIPPED (allow-test-only)"
+    res["changelog_gate"] = %"SKIPPED (allow-test-only)"
 
   # --- KEY 2: Live Compiler & Test Suite Gate (Anti-Green Mirage) ---
   var testOutput = ""

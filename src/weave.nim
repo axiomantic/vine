@@ -10,7 +10,8 @@ proc doBraidWeave*(
   baseRefParam: string = "",
   strandDirParam: string = "",
   force: bool = false,
-  allowNoTests: bool = false
+  allowNoTests: bool = false,
+  allowNoChangelog: bool = false
 ): tuple[output: JsonNode, exitCode: int] =
   var strandDir = if strandDirParam.len > 0: strandDirParam.normalizedPath else: getCurrentDir()
   var manifestPath = strandDir / ".vine.json"
@@ -33,7 +34,7 @@ proc doBraidWeave*(
     let effectiveBase = if baseRefParam.len > 0: baseRefParam
                         elif manifest != nil and manifest.hasKey("base_branch"): manifest["base_branch"].getStr()
                         else: "main"
-    let (gateRes, gateCode) = doBraidGate(branchParam, effectiveBase, strandDir, allowNoTests = allowNoTests)
+    let (gateRes, gateCode) = doBraidGate(branchParam, effectiveBase, strandDir, allowNoTests = allowNoTests, allowNoChangelog = allowNoChangelog)
     if gateCode != 0:
       var errObj = newJObject()
       errObj["status"] = %"weave_rejected"

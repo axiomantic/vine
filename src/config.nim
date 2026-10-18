@@ -10,6 +10,7 @@ type
     testCommand*: string
     activeConfigFile*: string
     gateTimeout*: float
+    allowNoChangelog*: bool
 
   BraidConfig* = VineConfig
 
@@ -100,7 +101,8 @@ proc loadVineConfig*(configPath: string = ""): VineConfig =
     vendorDirs: @["deps", "nimbledeps", "vendor", "node_modules", ".zig-cache"],
     testCommand: "",
     activeConfigFile: "",
-    gateTimeout: 180.0
+    gateTimeout: 180.0,
+    allowNoChangelog: false
   )
 
   let envConfig = getEnv("VINE_CONFIG", "")
@@ -127,6 +129,8 @@ proc loadVineConfig*(configPath: string = ""): VineConfig =
           if v.len > 0:
             try: result.gateTimeout = parseFloat(v)
             except CatchableError: discard
+        of "allow_no_changelog", "allownochangelog", "skip_changelog":
+          result.allowNoChangelog = v.toLowerAscii in ["true", "1", "yes"]
         else:
           discard
 
@@ -144,6 +148,10 @@ proc loadVineConfig*(configPath: string = ""): VineConfig =
   if envTimeout.len > 0:
     try: result.gateTimeout = parseFloat(envTimeout)
     except CatchableError: discard
+
+  let envChangelog = getEnv("VINE_ALLOW_NO_CHANGELOG", "")
+  if envChangelog.len > 0:
+    result.allowNoChangelog = envChangelog.toLowerAscii in ["true", "1", "yes"]
 
 proc loadBraidConfig*(configPath: string = ""): BraidConfig =
   loadVineConfig(configPath)

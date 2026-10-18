@@ -45,7 +45,7 @@ def test_vine_guide_lifecycle():
         assert target.exists()
 
         content = target.read_text()
-        assert "<!-- BEGIN VINE GUIDE [v1.6] -->" in content
+        assert "<!-- BEGIN VINE GUIDE [v1.7] -->" in content
         assert "<!-- END VINE GUIDE -->" in content
         assert "Vine Workspace & Strand Coordination Guide" in content
 
@@ -810,6 +810,50 @@ def test_vine_weave_and_gate_auto_resolve_by_task_id():
                 subprocess.run(["git", "-C", repo_dir, "worktree", "remove", "--force", strand_path], capture_output=True)
                 subprocess.run(["git", "-C", repo_dir, "worktree", "prune"], capture_output=True)
                 shutil.rmtree(os.path.dirname(os.path.dirname(strand_path)), ignore_errors=True)
+
+def test_vine_changelog_command():
+    """Verify vine changelog CLI operations: creation, entry addition, and checking."""
+    with tempfile.TemporaryDirectory(prefix="vine_cl_test_") as tmpdir:
+        subprocess.run(["git", "init", "-b", "main", "-q", tmpdir], check=True)
+        subprocess.run(["git", "-C", tmpdir, "config", "user.email", "agent@vine.mesh"], check=True)
+        subprocess.run(["git", "-C", tmpdir, "config", "user.name", "Vine Agent"], check=True)
+
+        # 1. No changelog initially
+        code, out, err = run_vine("changelog", "--check", "--repo", tmpdir)
+        assert code == 0
+        assert "No changelog file detected in project" in out
+
+        # 2. Ensure unreleased section creates CHANGELOG.md
+        code, out, err = run_vine("changelog", "--ensure-unreleased", "--repo", tmpdir)
+        assert code == 0
+        cl_path = os.path.join(tmpdir, "CHANGELOG.md")
+        assert os.path.exists(cl_path)
+        content = Path(cl_path).read_text()
+        assert "## [Unreleased]" in content
+
+        # 3. Add an entry
+        code, out, err = run_vine("changelog", "Added great new feature", "--repo", tmpdir)
+        assert code == 0
+        content = Path(cl_path).read_text()
+        assert "- Added great new feature" in content
+
+        # Initial commit with changelog
+        subprocess.run(["git", "-C", tmpdir, "add", "CHANGELOG.md"], check=True)
+        subprocess.run(["git", "-C", tmpdir, "commit", "-q", "-m", "chore: init changelog"], check=True)
+
+        # 4. Check reports violation if not modified in diff against HEAD
+        code, out, err = run_vine("changelog", "--check", "--repo", tmpdir)
+        assert code == 5
+        assert "is NOT modified in diff" in err or "is NOT modified in diff" in out
+
+        # 5. Add a new entry to make it modified
+        code, out, err = run_vine("changelog", "Second entry in progress", "--repo", tmpdir)
+        assert code == 0
+
+        # 6. Now check passes
+        code, out, err = run_vine("changelog", "--check", "--repo", tmpdir)
+        assert code == 0
+        assert "Clean: CHANGELOG.md is modified in diff" in out
 
 if __name__ == "__main__":
     import inspect

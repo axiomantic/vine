@@ -55,6 +55,11 @@ Never stage or commit '.vine.json' or workspace metadata into Git. Strand metada
 </FORBIDDEN>
 
 <CRITICAL>
+Pre-Weave Changelog Invariant:
+Whenever a project contains a changelog (`CHANGELOG.md`, `changelog.md`, `CHANGES.md`, etc.), task deliverables MUST update the changelog under the `## [Unreleased]` section (or equivalent) before requesting a trunk weave. Strands failing to update an existing changelog are rejected at Key 2 (`GATE_CHANGELOG_VIOLATION`, exit code 5) unless explicitly bypassed with `--allow-no-changelog` or `allow_no_changelog = true` in `vine.toml`. Use `vine changelog "Description of change"` or `vine changelog --ensure-unreleased` to update it.
+</CRITICAL>
+
+<CRITICAL>
 Compaction Preservation Rider & Post-Compact Invariant (GVR-010):
 Context compaction purges detailed operational invariants, ceremony rules, and protocol mechanics from working memory.
 
@@ -218,8 +223,9 @@ ightarrow$ `DEAD_LETTER`. Otherwise returns to `QUEUED`. | Escalates to operator
 | `vine new <task_id> --worktree` | Creates a strand using Git worktree fallback. | `vine new task-101 --worktree` |
 | `vine status [<task_id>] [--json]` | Inspects commits ahead/behind, metadata filtering, and lifecycle state. | `vine status --json` |
 | `vine collisions [--json]` | Forecasts file footprint overlaps across active strands before merge. | `vine collisions --json` |
-| `vine gate [--json] [-- <cmd...>]` | Evaluates Two-Key Gate (mechanical merge-tree + live test suite). Supports `-- <cmd...>` (recommended) and `--test-command <cmd>`. | `vine gate --json -- nimble test` |
-| `vine weave` | Fast-forwards verified strand into trunk and prunes workspace. | `vine weave` |
+| `vine gate [--json] [-- <cmd...>]` | Evaluates Two-Key Gate (mechanical merge-tree, live test suite, and changelog). Supports `--allow-no-changelog`, `--ensure-unreleased`, and `-- <cmd...>`. | `vine gate --json -- nimble test` |
+| `vine weave` | Fast-forwards verified strand into trunk and prunes workspace. Supports `--allow-no-changelog`. | `vine weave` |
+| `vine changelog [entry]` | Appends entry to changelog under `## [Unreleased]`. Supports `--ensure-unreleased`, `--section <sec>`, and `--check`. | `vine changelog "Add feature"` |
 | `vine list` | Displays active strands, branch mappings, and manifests. | `vine list` |
 | `vine sync` | Re-synchronizes diverged canonical trunk changes into active strand. | `vine sync` |
 | `vine prune [--max-age <hours>]` | Garbage collects stale, merged, or abandoned strands. | `vine prune` |
@@ -236,15 +242,23 @@ vine new <task_id> --branch strand/<task_id>
 ```
 Navigate to the returned `strand_path` and perform all edits, compilations, and tests there.
 
-### Step 2: Verify Three-Key Gate & Adversarial Audit Clearance
+### Step 2: Update Changelog (If Present)
+If the repository has a changelog (`CHANGELOG.md`), record your changes under `## [Unreleased]`:
+```bash
+vine changelog "feat: add capability X with consumer Y"
+```
+Or ensure the section is scaffolded with `vine changelog --ensure-unreleased`.
+
+### Step 3: Verify Three-Key Gate & Adversarial Audit Clearance
 Before signaling completion or requesting a trunk weave:
 1. **Key 1 & Key 2 Evaluation**:
 ```bash
 vine gate --json
 ```
-- **Exit 0**: Both Key 1 (mechanical merge-tree) and Key 2 (semantic compiler/test runner) passed.
+- **Exit 0**: Both Key 1 (mechanical merge-tree) and Key 2 (semantic compiler/test runner + changelog) passed.
 - **Exit 1**: Key 1 failed (conflicts with canonical trunk). Run `vine sync` inside strand to resolve conflicts.
 - **Exit 2**: Key 2 failed (compiler or test failure). Fix code inside strand.
+- **Exit 5**: Changelog violation (changelog exists but missing `## [Unreleased]` section or unchanged in diff). Run `vine changelog` or pass `--allow-no-changelog`.
 
 2. **Key 3: Pre-Weave Adversarial Audit (Dialectical Code Audit Pump)**:
 Assemble the **Deliverable Claim Bundle** and verify compliance against the Five Pillars:
@@ -255,7 +269,7 @@ Assemble the **Deliverable Claim Bundle** and verify compliance against the Five
 - **Structural Assertions**: Full object identity (`assert actual == expected`) and negative controls.
 Remediate any audit findings inside the strand through the **Delta Re-Pump Loop** until 0 defects remain.
 
-### Step 3: Trunk Weaving & Post-Push CI Verification
+### Step 4: Trunk Weaving & Post-Push CI Verification
 Once all Three Keys pass (Key 1, Key 2, and Key 3 audit clearance):
 ```bash
 vine weave

@@ -5,13 +5,13 @@
 import std/[os, strutils]
 
 const
-  GuideVersion* = "v1.6"
+  GuideVersion* = "v1.7"
   BeginMarker* = "<!-- BEGIN VINE GUIDE [" & GuideVersion & "] -->"
   EndMarker* = "<!-- END VINE GUIDE -->"
   MarkerPrefix* = "<!-- BEGIN VINE GUIDE"
 
 const CanonicalGuideContent* = """
-<!-- BEGIN VINE GUIDE [v1.6] -->
+<!-- BEGIN VINE GUIDE [v1.7] -->
 <!-- DO NOT EDIT DIRECTLY: Managed by `vine guide install` -->
 
 ## Vine Workspace & Strand Coordination Guide
@@ -45,6 +45,8 @@ npm install -g @axiomantic/rhizo @axiomantic/vine
   When recreating, porting, reverse-engineering, duplicating functionality from an existing reference, or executing an operator directive where fidelity is expected, the deliverable must exhibit literal, true fidelity. Approximations ("looks right", "good enough for happy paths", or "approximate heuristic") are STRICTLY REJECTED. The implementation must literally be the thing that was asked for, matching all edge cases, type boundaries, flags, and error flows.
 * **Structural Assertion Rigor (Anti-Green-Mirage)**:
   Partial or loose assertions ("loosey goosey" tests like `assert "foo" in bar` or `assert len(arr) > 0`) are strictly forbidden. Tests must assert complete object equality (`assert actual == expected`) and cover negative controls.
+* **Pre-Weave Changelog Invariant**:
+  Whenever a project has an existing changelog (`CHANGELOG.md`, `changelog.md`, `CHANGES.md`, etc.), deliverables MUST document their changes under `## [Unreleased]` before passing Key 2. Strands with substantive changes that fail to update an existing changelog are rejected at Key 2 (`GATE_CHANGELOG_VIOLATION`, exit code 5) unless explicitly bypassed with `--allow-no-changelog` or `allow_no_changelog = true` in `vine.toml`.
 
 ---
 
@@ -169,7 +171,7 @@ git merge-tree --write-tree "$BASE_BRANCH" HEAD
 - **Exit 0**: Clean mechanical merge.
 - **Exit 1**: Conflicts detected. Resolve conflicts *inside the Strand* before touching canonical trunk.
 
-#### Key 2: Live Compiler & Test Suite Gate (Zero Green Mirage)
+#### Key 2: Live Compiler, Test Suite & Changelog Gate (Zero Green Mirage)
 Execute the project's actual build and test suite inside the Strand:
 ```bash
 # Inferred from project or configured in vine.toml:
@@ -178,6 +180,7 @@ vine gate
 vine gate -- <custom-test-command>
 ```
 *Never bypass this gate. `git merge-tree` only verifies text mergeability, not compilation or semantic correctness.*
+* **Changelog Validation**: If a changelog file exists in the repository, `vine gate` verifies that it is modified under the `## [Unreleased]` section. Update it via `vine changelog "Description of changes"` or use `vine changelog --ensure-unreleased` to scaffold the section. For non-user-facing or test-only tasks, pass `--allow-no-changelog`.
 
 #### Key 3: Pre-Weave Adversarial Code Audit Pump
 Execute the Five-Pillar adversarial code audit under the presumption of guilt:
