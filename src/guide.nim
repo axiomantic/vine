@@ -41,6 +41,10 @@ npm install -g @axiomantic/rhizo @axiomantic/vine
   If an assigned task has an active `.vine.json`, re-anchor to that directory instead of touching the canonical repository root.
 * **Closed-Circuit Two-Point Diff & Holistic Integration Mandate**:
   Never construct isolated code in a vacuum. Every strand deliverable must contain both a Provider (new capability) and an active Consumer call-site (live entrypoint, router, CLI dispatcher, or UI). Modules tested solely by their own test suites are strictly prohibited as incomplete shelfware. Furthermore, the integration must be holistic (no toys, stubs, mocks, or shallow heuristics). Any legacy or obsolete code targeted for replacement MUST be deleted in the same strand—never preserved as a vestigial fallback or commented out.
+* **Anti-Defeat-Device & Anti-Theatrical Interceptor Mandate**:
+  Prompt keyword interceptors (e.g. `if 'flight game' in q or 'webworker' in q`) and theatrical mock questionnaires in generic runtimes that bypass genuine neural/radar/algorithmic pipelines to fake benchmark compliance are strictly prohibited. Mechanically caught by `vine gate` (Exit 7: `ExitGateDefeatDeviceViolation`) and instantly rejected at Key 3 as critical defects.
+* **Autonomous Intensive Audit Mandate (Authorized SOP)**:
+  Intensive Five-Pillar adversarial audits (Key 3) are Standard Operating Procedure (SOP). They are pre-authorized, mandatory, and autonomous across the Triad. Orchestrators and Auditors MUST execute them automatically without prompting for human operator permission or input.
 * **Literal Fidelity & Reference Parity Mandate (Anti-Approximation)**:
   When recreating, porting, reverse-engineering, duplicating functionality from an existing reference, or executing an operator directive where fidelity is expected, the deliverable must exhibit literal, true fidelity. Approximations ("looks right", "good enough for happy paths", or "approximate heuristic") are STRICTLY REJECTED. The implementation must literally be the thing that was asked for, matching all edge cases, type boundaries, flags, and error flows.
 * **Structural Assertion Rigor (Anti-Green-Mirage)**:
@@ -185,7 +189,7 @@ vine gate -- <custom-test-command>
 #### Key 3: Pre-Weave Adversarial Code Audit Pump
 Execute the Five-Pillar adversarial code audit under the presumption of guilt:
 1. **Closed-Circuit Two-Point Diff**: Active consumer call-site wired to provider.
-2. **Holistic Integration**: Real state and error handling; zero hollow mocks or naive string splits.
+2. **Holistic Integration & Anti-Defeat-Device**: Real state and error handling; zero hollow mocks, naive string splits, or prompt keyword interceptors.
 3. **Literal Fidelity & Reference Parity**: Exact, uncompromised fidelity to operator directives and reference specifications (zero "good enough" approximations).
 4. **Aggressive Replacement Purge**: Obsolete legacy code and fallbacks completely deleted.
 5. **Structural Assertion Rigor**: Complete object equality (`assert actual == expected`) and negative controls.

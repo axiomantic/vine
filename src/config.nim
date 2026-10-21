@@ -11,6 +11,7 @@ type
     activeConfigFile*: string
     gateTimeout*: float
     allowNoChangelog*: bool
+    allowDefeatDevices*: bool
 
   BraidConfig* = VineConfig
 
@@ -102,7 +103,8 @@ proc loadVineConfig*(configPath: string = ""): VineConfig =
     testCommand: "",
     activeConfigFile: "",
     gateTimeout: 180.0,
-    allowNoChangelog: false
+    allowNoChangelog: false,
+    allowDefeatDevices: false
   )
 
   let envConfig = getEnv("VINE_CONFIG", "")
@@ -131,6 +133,8 @@ proc loadVineConfig*(configPath: string = ""): VineConfig =
             except CatchableError: discard
         of "allow_no_changelog", "allownochangelog", "skip_changelog":
           result.allowNoChangelog = v.toLowerAscii in ["true", "1", "yes"]
+        of "allow_defeat_devices", "allowdefeatdevices", "allow_keyword_interceptors":
+          result.allowDefeatDevices = v.toLowerAscii in ["true", "1", "yes"]
         else:
           discard
 
@@ -152,6 +156,10 @@ proc loadVineConfig*(configPath: string = ""): VineConfig =
   let envChangelog = getEnv("VINE_ALLOW_NO_CHANGELOG", "")
   if envChangelog.len > 0:
     result.allowNoChangelog = envChangelog.toLowerAscii in ["true", "1", "yes"]
+
+  let envDefeat = getEnv("VINE_ALLOW_DEFEAT_DEVICES", "")
+  if envDefeat.len > 0:
+    result.allowDefeatDevices = envDefeat.toLowerAscii in ["true", "1", "yes"]
 
 proc loadBraidConfig*(configPath: string = ""): BraidConfig =
   loadVineConfig(configPath)

@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Three-Key Integration Gate & Key 3 Adversarial Audit (`src/gate.nim`, `src/vine.nim`, `src/weave.nim`)**:
+  - Upgraded Vine integration gate to the Three-Key Gate: Key 1 (mechanical merge-tree), Key 2 (semantic compiler/tests + changelog), and Key 3 (independent adversarial audit ratification).
+  - Implemented `vine submit` command transitioning strands to `status: "READY_FOR_AUDIT"` after passing Keys 1 and 2.
+  - Implemented `vine audit approve --auditor <name>` and `vine audit reject` commands with cryptographic HMAC `audit_token` stamping.
+  - Enforced "The Worker is NOT the Auditor" invariant: self-auditing by strand author is rejected with exit code 6 (`ExitGateAuditViolation` / `GATE_AUDIT_VIOLATION`).
+  - Added Key 3 ratification enforcement to `vine weave` blocking un-audited trunk merges unless `--allow-unaudited` is explicitly passed.
+  - Added automated Garden task seed harvesting and roadmap sync in `vine weave` upon fast-forward merge into canonical trunk.
+- **Anti-Defeat-Device Scan & Autonomous Audit Mandate (`src/gate.nim`, `src/config.nim`, `src/vine.nim`)**:
+  - Implemented mechanical Volkswagen Defeat Device scanner (`scanForDefeatDevices`) in `vine gate` and `vine submit`, detecting prompt/query keyword interceptors (e.g. `if 'flight game' in q`) and theatrical mock questionnaires in application code outside test suites.
+  - Rejects defeat devices with dedicated exit code `7` (`ExitGateDefeatDeviceViolation`). Added `--allow-defeat-devices` CLI flag and `allow_defeat_devices` config in `vine.toml` for explicit bypass.
+  - Codified the Autonomous Intensive Audit Mandate: intensive Five-Pillar adversarial audits are Standard Operating Procedure (SOP), pre-authorized, and autonomous across the Triad without requiring operator input.
+
 ## [0.2.12] - 2026-10-18
 
 ### Added

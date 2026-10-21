@@ -11,6 +11,8 @@ const
   ExitGateTwoPointViolation* = 3
   ExitGateTimeout* = 4
   ExitGateChangelogViolation* = 5
+  ExitGateAuditViolation* = 6
+  ExitGateDefeatDeviceViolation* = 7
 
 const ChangelogFilenames* = [
   "CHANGELOG.md", "changelog.md",
@@ -194,6 +196,101 @@ proc detectTestCommand*(dir: string): string =
     if kind == pcFile and p.endsWith(".nimble"): return "nimble test"
   return ""
 
+type
+  DefeatDeviceFinding* = object
+    path*: string
+    lineNum*: int
+    line*: string
+    reason*: string
+
+proc scanForDefeatDevices*(strandDir: string, diffBase: string, branch: string = "HEAD"): seq[DefeatDeviceFinding] =
+  result = @[]
+  var cmd = "git -C " & quoteShell(strandDir) & " diff -U0 " & quoteShell(diffBase) & "..." & quoteShell(branch)
+  if diffBase == branch or diffBase == "HEAD":
+    cmd = "git -C " & quoteShell(strandDir) & " diff -U0 HEAD"
+  let (dOut, dCode) = try: execCmdEx(cmd) except CatchableError: ("", 1)
+  if dCode != 0 or dOut.strip().len == 0:
+    return
+
+  var curFile = ""
+  var curLineNum = 0
+
+  for rawLine in dOut.splitLines():
+    if rawLine.startsWith("diff --git "):
+      curFile = ""
+      curLineNum = 0
+      continue
+    elif rawLine.startsWith("+++ b/"):
+      curFile = rawLine[6..^1].strip().replace('\\', '/')
+      continue
+    elif rawLine.startsWith("@@ "):
+      let plusIdx = rawLine.find('+')
+      if plusIdx > 0:
+        let rest = rawLine[plusIdx + 1 .. ^1]
+        let spaceIdx = rest.find(' ')
+        let chunk = if spaceIdx > 0: rest[0 ..< spaceIdx] else: rest
+        let commaIdx = chunk.find(',')
+        let startLineStr = if commaIdx > 0: chunk[0 ..< commaIdx] else: chunk
+        try: curLineNum = parseInt(startLineStr)
+        except CatchableError: curLineNum = 0
+      continue
+
+    if curFile.len == 0: continue
+    let norm = curFile.toLowerAscii
+    if not (norm.startsWith("src/") or norm.startsWith("bin/") or norm.startsWith("lib/") or norm.startsWith("app/")):
+      continue
+    if norm.startsWith("tests/") or norm.startsWith("test/") or
+       norm.contains("/test/") or norm.contains("/tests/") or
+       norm.contains("/fixtures/") or norm.contains("/fixture/") or
+       norm.endsWith(".md") or norm.endsWith(".json") or norm.endsWith(".toml") or
+       norm.endsWith(".yaml") or norm.endsWith(".yml"):
+      continue
+
+    if rawLine.startsWith("+") and not rawLine.startsWith("+++"):
+      let addedLine = rawLine[1..^1]
+      let trimmed = addedLine.strip()
+      let lower = trimmed.toLowerAscii
+
+      if trimmed.len == 0 or trimmed.startsWith("#") or trimmed.startsWith("//") or
+         trimmed.startsWith("/*") or trimmed.startsWith("*"):
+        inc curLineNum
+        continue
+
+      var isInterceptor = false
+      var reason = ""
+
+      let hasQueryVar = lower.contains(" in q") or lower.contains(" in query") or
+                        lower.contains(" in prompt") or lower.contains(" in user_query") or
+                        lower.contains(" in userquery") or lower.contains(" in input_query") or
+                        lower.contains("q.contains(") or lower.contains("query.contains(") or
+                        lower.contains("prompt.contains(") or lower.contains("input.contains(")
+
+      let hasBenchmarkKeywords = lower.contains("flight game") or lower.contains("nim_3d_flight_game") or
+                                 lower.contains("webworker") or lower.contains("benchmark_query")
+
+      let hasTheatricalMocks = lower.contains("epistemicquestions") or lower.contains("mockquestionnaire") or
+                               lower.contains("isdeepprojectcreationquery")
+
+      if hasTheatricalMocks:
+        isInterceptor = true
+        reason = "Theatrical mock questionnaire or hardcoded project query interceptor detected"
+      elif hasQueryVar and (hasBenchmarkKeywords or (lower.count(" or ") >= 1 and (lower.contains("\"") or lower.contains("'")))):
+        isInterceptor = true
+        reason = "Prompt keyword interceptor detected matching user query variables ('in q', 'query.contains', etc.) with domain/benchmark branches"
+      elif hasBenchmarkKeywords and (lower.contains("proc ") or lower.contains("def ") or lower.contains("fn ") or lower.contains("function ")):
+        isInterceptor = true
+        reason = "Hardcoded benchmark keyword routing procedure detected in application code"
+
+      if isInterceptor:
+        result.add(DefeatDeviceFinding(
+          path: curFile,
+          lineNum: curLineNum,
+          line: trimmed,
+          reason: reason
+        ))
+
+      inc curLineNum
+
 proc doBraidGate*(
   branchParam: string = "",
   baseRefParam: string = "HEAD",
@@ -204,7 +301,10 @@ proc doBraidGate*(
   allowTestOnly: bool = false,
   timeoutSecParam: float = 0.0,
   allowNoChangelog: bool = false,
-  autoEnsureUnreleased: bool = false
+  autoEnsureUnreleased: bool = false,
+  submit: bool = false,
+  authorParam: string = "",
+  allowDefeatDevices: bool = false
 ): tuple[output: JsonNode, exitCode: int] =
   var strandDir = if strandDirParam.len > 0: strandDirParam.normalizedPath else: getCurrentDir()
   var manifestPath = strandDir / ".vine.json"
@@ -247,6 +347,7 @@ proc doBraidGate*(
     effectiveTimeout = cfg.gateTimeout
   if timeoutSecParam > 0.0:
     effectiveTimeout = timeoutSecParam
+  let prevStatus = if manifest != nil and manifest.hasKey("status"): manifest["status"].getStr() else: ""
 
   # Track gate evaluation in manifest if present
   if manifest != nil:
@@ -453,6 +554,43 @@ proc doBraidGate*(
     res["two_point_diff"] = %"SKIPPED (allow-test-only)"
     res["changelog_gate"] = %"SKIPPED (allow-test-only)"
 
+  # --- ANTI-DEFEAT-DEVICE SCAN (Volkswagen Defeat Device & Benchmark Interceptor Detection) ---
+  let effAllowDefeat = allowDefeatDevices or cfg.allowDefeatDevices
+  if not effAllowDefeat:
+    let diffBase = if baseRef.len > 0 and baseRef != "HEAD": baseRef
+                   elif manifest != nil and manifest.hasKey("base_branch"): manifest["base_branch"].getStr()
+                   elif manifest != nil and manifest.hasKey("base_commit"): manifest["base_commit"].getStr()
+                   else: "main"
+    let defeatFindings = scanForDefeatDevices(strandDir, diffBase, branch)
+    if defeatFindings.len > 0:
+      res["status"] = %"defeat_device_detected"
+      res["clean"] = %false
+      res["defeat_device_gate"] = %"FAIL"
+      var fArr = newJArray()
+      for f in defeatFindings:
+        var fObj = newJObject()
+        fObj["file"] = %f.path
+        fObj["line_number"] = %f.lineNum
+        fObj["line"] = %f.line
+        fObj["reason"] = %f.reason
+        fArr.add(fObj)
+      res["defeat_devices"] = fArr
+      res["defeat_device_error"] = %(
+        "Volkswagen Defeat Device Violation: Prompt/query keyword interceptor detected in application code (" &
+        defeatFindings[0].path & ":" & $defeatFindings[0].lineNum & "). " &
+        "Deliverables that bypass genuine execution pipelines or emit static mock questionnaires to fake benchmark compliance are strictly prohibited. Pass --allow-defeat-devices to bypass."
+      )
+      if manifest != nil:
+        manifest["status"] = %"GATE_FAILED"
+        manifest["lifecycle_state"] = %"GATE_FAILED"
+        try: writeFile(manifestPath, pretty(manifest))
+        except CatchableError: discard
+      return (res, ExitGateDefeatDeviceViolation)
+    else:
+      res["defeat_device_gate"] = %"PASS"
+  else:
+    res["defeat_device_gate"] = %"SKIPPED (allow-defeat-devices)"
+
   # --- KEY 2: Live Compiler & Test Suite Gate (Anti-Green Mirage) ---
   var testOutput = ""
   if not skipTests:
@@ -563,12 +701,298 @@ proc doBraidGate*(
   if manifest != nil:
     if testCmdParam.len > 0:
       manifest["test_command"] = %testCmdParam
-    manifest["status"] = %"READY_FOR_WEAVE"
-    manifest["lifecycle_state"] = %"GATE_PASSED"
     manifest["merge_tree_sha"] = %treeSha
     manifest["test_output_hash"] = %testOutputHash
     manifest["gate_token"] = %gateToken
     manifest["verified_at"] = %now().utc().format("yyyy-MM-dd'T'HH:mm:ss'Z'")
+
+    let existingStatus = if manifest.hasKey("status"): manifest["status"].getStr() else: ""
+    if submit:
+      manifest["status"] = %"READY_FOR_AUDIT"
+      manifest["lifecycle_state"] = %"READY_FOR_AUDIT"
+      var effAuthor = authorParam
+      if effAuthor.len == 0:
+        if manifest.hasKey("author"): effAuthor = manifest["author"].getStr()
+        elif manifest.hasKey("worker_name"): effAuthor = manifest["worker_name"].getStr()
+        elif getEnv("RHIZO_AGENT_NAME").len > 0: effAuthor = getEnv("RHIZO_AGENT_NAME")
+        else: effAuthor = getEnv("USER", "worker")
+      manifest["author"] = %effAuthor
+      manifest["submitted_at"] = %now().utc().format("yyyy-MM-dd'T'HH:mm:ss'Z'")
+      res["status"] = %"ready_for_audit"
+      res["author"] = %effAuthor
+    elif prevStatus == "AUDIT_RATIFIED":
+      manifest["status"] = %"AUDIT_RATIFIED"
+      manifest["lifecycle_state"] = %"AUDIT_RATIFIED"
+    else:
+      manifest["status"] = %"READY_FOR_WEAVE"
+      manifest["lifecycle_state"] = %"GATE_PASSED"
+
     try: writeFile(manifestPath, pretty(manifest))
     except CatchableError: discard
   return (res, 0)
+
+proc getMergeTreeSha*(strandDir: string, baseRef: string, branch: string = "HEAD"): string =
+  let cmd = "git -C " & quoteShell(strandDir) & " merge-tree --write-tree " & quoteShell(baseRef) & " " & quoteShell(branch)
+  let (mtOut, mtCode) = execCmdEx(cmd)
+  if mtCode == 0 and mtOut.strip().len > 0:
+    return mtOut.strip().splitLines()[0]
+  return ""
+
+proc doStrandSubmit*(
+  strandDirParam: string = "",
+  authorParam: string = "",
+  testCmdParam: string = "",
+  allowNoTests: bool = false,
+  allowTestOnly: bool = false,
+  allowNoChangelog: bool = false,
+  timeoutSec: float = 0.0,
+  allowDefeatDevices: bool = false
+): tuple[output: JsonNode, exitCode: int] =
+  var strandDir = if strandDirParam.len > 0: strandDirParam.normalizedPath else: getCurrentDir()
+  var manifestPath = strandDir / ".vine.json"
+  var manifest: JsonNode = nil
+
+  if fileExists(manifestPath):
+    try: manifest = parseJson(readFile(manifestPath))
+    except CatchableError: discard
+
+  if manifest == nil and strandDirParam.len > 0:
+    let found = findStrandManifest(strandDirParam, getCurrentDir())
+    if found != nil and found.hasKey("strand_path") and dirExists(found["strand_path"].getStr):
+      manifest = found
+      strandDir = manifest["strand_path"].getStr.normalizedPath
+      manifestPath = strandDir / ".vine.json"
+
+  let effectiveBase = if manifest != nil and manifest.hasKey("base_branch"): manifest["base_branch"].getStr() else: "main"
+  let effectiveBranch = if manifest != nil and manifest.hasKey("branch"): manifest["branch"].getStr() else: "HEAD"
+
+  var effAuthor = authorParam
+  if effAuthor.len == 0:
+    if manifest != nil and manifest.hasKey("worker_name"):
+      effAuthor = manifest["worker_name"].getStr()
+    elif manifest != nil and manifest.hasKey("author"):
+      effAuthor = manifest["author"].getStr()
+    elif getEnv("RHIZO_AGENT_NAME").len > 0:
+      effAuthor = getEnv("RHIZO_AGENT_NAME")
+    else:
+      effAuthor = getEnv("USER", "worker")
+
+  let (gateRes, gateCode) = doBraidGate(
+    branchParam = effectiveBranch,
+    baseRefParam = effectiveBase,
+    strandDirParam = strandDir,
+    skipTests = false,
+    testCmdParam = testCmdParam,
+    allowNoTests = allowNoTests,
+    allowTestOnly = allowTestOnly,
+    timeoutSecParam = timeoutSec,
+    allowNoChangelog = allowNoChangelog,
+    submit = true,
+    authorParam = effAuthor,
+    allowDefeatDevices = allowDefeatDevices
+  )
+
+  if gateCode != 0:
+    return (gateRes, gateCode)
+
+  var res = newJObject()
+  res["status"] = %"ready_for_audit"
+  res["task_id"] = if manifest != nil and manifest.hasKey("task_id"): manifest["task_id"] else: %strandDir.splitPath.tail
+  res["author"] = %effAuthor
+  res["strand_path"] = %strandDir
+  res["merge_tree_sha"] = gateRes.getOrDefault("merge_tree_sha")
+  res["gate_token"] = gateRes.getOrDefault("gate_token")
+  res["message"] = %"Strand passed Keys 1 & 2 and is submitted for independent Key 3 Adversarial Audit."
+  return (res, 0)
+
+proc doStrandAudit*(
+  action: string,
+  strandDirParam: string = "",
+  auditorParam: string = "",
+  reasonParam: string = "",
+  findingsFileParam: string = "",
+  notesParam: string = ""
+): tuple[output: JsonNode, exitCode: int] =
+  var strandDir = if strandDirParam.len > 0: strandDirParam.normalizedPath else: getCurrentDir()
+  var manifestPath = strandDir / ".vine.json"
+  var manifest: JsonNode = nil
+
+  if fileExists(manifestPath):
+    try: manifest = parseJson(readFile(manifestPath))
+    except CatchableError: discard
+
+  if manifest == nil and strandDirParam.len > 0:
+    let found = findStrandManifest(strandDirParam, getCurrentDir())
+    if found != nil and found.hasKey("strand_path") and dirExists(found["strand_path"].getStr):
+      manifest = found
+      strandDir = manifest["strand_path"].getStr.normalizedPath
+      manifestPath = strandDir / ".vine.json"
+
+  if manifest == nil:
+    var errObj = newJObject()
+    errObj["status"] = %"error"
+    errObj["error"] = %("No .vine.json manifest found for strand at: " & strandDir)
+    return (errObj, 1)
+
+  let normAction = action.toLowerAscii
+  case normAction
+  of "status":
+    var res = newJObject()
+    for key in ["task_id", "status", "lifecycle_state", "author", "auditor", "audit_token", "submitted_at", "audited_at", "rejected_at", "rejection_reason", "findings", "notes"]:
+      if manifest.hasKey(key):
+        res[key] = manifest[key]
+      else:
+        res[key] = %""
+    return (res, 0)
+
+  of "reject":
+    var auditor = auditorParam
+    if auditor.len == 0:
+      if getEnv("RHIZO_AGENT_NAME").len > 0: auditor = getEnv("RHIZO_AGENT_NAME")
+      else: auditor = getEnv("USER", "")
+    if auditor.len == 0:
+      var errObj = newJObject()
+      errObj["status"] = %"error"
+      errObj["error"] = %"Missing auditor: Specify --auditor <name> or set RHIZO_AGENT_NAME."
+      return (errObj, 1)
+
+    let author = if manifest.hasKey("author"): manifest["author"].getStr()
+                 elif manifest.hasKey("worker_name"): manifest["worker_name"].getStr()
+                 else: ""
+    if author.len > 0 and auditor.toLowerAscii == author.toLowerAscii:
+      var errObj = newJObject()
+      errObj["status"] = %"audit_violation"
+      errObj["error"] = %("Self-audit violation: Worker '" & author & "' cannot audit their own strand. Key 3 requires an independent Adversarial Auditor created by the Orchestrator.")
+      return (errObj, ExitGateAuditViolation)
+
+    var findings = ""
+    if findingsFileParam.len > 0 and fileExists(findingsFileParam):
+      try: findings = readFile(findingsFileParam)
+      except CatchableError: discard
+
+    let reason = if reasonParam.len > 0: reasonParam else: "Audit failed: defects detected during adversarial review."
+
+    manifest["status"] = %"AUDIT_REJECTED"
+    manifest["lifecycle_state"] = %"AUDIT_REJECTED"
+    manifest["auditor"] = %auditor
+    manifest["rejection_reason"] = %reason
+    manifest["rejected_at"] = %now().utc().format("yyyy-MM-dd'T'HH:mm:ss'Z'")
+    if findings.len > 0:
+      manifest["findings"] = %findings
+    try: writeFile(manifestPath, pretty(manifest))
+    except CatchableError: discard
+
+    var res = newJObject()
+    res["status"] = %"audit_rejected"
+    res["task_id"] = manifest.getOrDefault("task_id")
+    res["author"] = %author
+    res["auditor"] = %auditor
+    res["rejection_reason"] = %reason
+    if findings.len > 0:
+      res["findings"] = %findings
+    res["message"] = %"Strand rejected by Adversarial Auditor. Worker must address findings and re-submit."
+    return (res, 0)
+
+  of "approve", "ratify":
+    var auditor = auditorParam
+    if auditor.len == 0:
+      if getEnv("RHIZO_AGENT_NAME").len > 0: auditor = getEnv("RHIZO_AGENT_NAME")
+      else: auditor = getEnv("USER", "")
+    if auditor.len == 0:
+      var errObj = newJObject()
+      errObj["status"] = %"error"
+      errObj["error"] = %"Missing auditor: Specify --auditor <name> or set RHIZO_AGENT_NAME."
+      return (errObj, 1)
+
+    let author = if manifest.hasKey("author"): manifest["author"].getStr()
+                 elif manifest.hasKey("worker_name"): manifest["worker_name"].getStr()
+                 else: ""
+    if author.len > 0 and auditor.toLowerAscii == author.toLowerAscii:
+      var errObj = newJObject()
+      errObj["status"] = %"audit_violation"
+      errObj["error"] = %("Self-audit violation: Worker '" & author & "' cannot audit their own strand. Key 3 requires an independent Adversarial Auditor created by the Orchestrator.")
+      return (errObj, ExitGateAuditViolation)
+
+    let currentStatus = manifest.getOrDefault("status").getStr("")
+    let currentLifecycle = manifest.getOrDefault("lifecycle_state").getStr("")
+    let gateToken = manifest.getOrDefault("gate_token").getStr("")
+    let recordedTreeSha = manifest.getOrDefault("merge_tree_sha").getStr("")
+
+    if gateToken.len == 0 or recordedTreeSha.len == 0 or
+       (currentStatus notin ["READY_FOR_AUDIT", "READY_FOR_WEAVE", "GATE_PASSED"] and
+        currentLifecycle notin ["READY_FOR_AUDIT", "READY_FOR_WEAVE", "GATE_PASSED"]):
+      var errObj = newJObject()
+      errObj["status"] = %"audit_prerequisite_failed"
+      errObj["error"] = %"Strand has not passed Keys 1 & 2. Run 'vine gate' or 'vine submit' before auditing."
+      return (errObj, ExitGateAuditViolation)
+
+    # Check uncommitted dirty files in strand
+    let (sOut, sCode) = execCmdEx("git -C " & quoteShell(strandDir) & " status --porcelain")
+    var hasDirty = false
+    if sCode == 0 and sOut.strip().len > 0:
+      for line in sOut.splitLines():
+        let t = line.strip()
+        if t.len >= 3:
+          let f = t[3..^1].strip()
+          let topDir = if f.contains('/'): f.split('/')[0] else: f
+          if f in [".vine.json", ".envrc", ".venv"] or f.startsWith(".vine") or topDir in ["deps", "nimbledeps", "vendor", "node_modules", ".zig-cache", ".venv"]:
+            continue
+          hasDirty = true
+          break
+    if hasDirty:
+      var errObj = newJObject()
+      errObj["status"] = %"audit_dirty_strand"
+      errObj["error"] = %"Strand has uncommitted changes. All changes must be committed before auditing."
+      return (errObj, ExitGateAuditViolation)
+
+    # Verify merge tree sha matches current git tree
+    let baseBranch = manifest.getOrDefault("base_branch").getStr("main")
+    let currentTreeSha = getMergeTreeSha(strandDir, baseBranch)
+    if currentTreeSha.len > 0 and currentTreeSha != recordedTreeSha:
+      var errObj = newJObject()
+      errObj["status"] = %"audit_tree_diverged"
+      errObj["error"] = %"Strand git tree has diverged since gate verification. Re-run 'vine gate' or 'vine submit'."
+      return (errObj, ExitGateAuditViolation)
+
+    let auditCfg = loadVineConfig(findVineConfigPath(strandDir))
+    if not auditCfg.allowDefeatDevices:
+      let defeatFindings = scanForDefeatDevices(strandDir, baseBranch, "HEAD")
+      if defeatFindings.len > 0:
+        var errObj = newJObject()
+        errObj["status"] = %"defeat_device_detected"
+        errObj["error"] = %("Key 3 Audit Violation: Volkswagen Defeat Device detected in strand (" &
+          defeatFindings[0].path & ":" & $defeatFindings[0].lineNum & "). Prompt keyword interceptors and theatrical mocks cannot be ratified.")
+        return (errObj, ExitGateDefeatDeviceViolation)
+
+    let effectiveTreeSha = if currentTreeSha.len > 0: currentTreeSha else: recordedTreeSha
+    let auditToken = computeAuditToken(gateToken, effectiveTreeSha, auditor)
+
+    manifest["status"] = %"AUDIT_RATIFIED"
+    manifest["lifecycle_state"] = %"AUDIT_RATIFIED"
+    manifest["auditor"] = %auditor
+    manifest["audit_token"] = %auditToken
+    manifest["audited_at"] = %now().utc().format("yyyy-MM-dd'T'HH:mm:ss'Z'")
+    if notesParam.len > 0:
+      manifest["notes"] = %notesParam
+    if findingsFileParam.len > 0 and fileExists(findingsFileParam):
+      try: manifest["findings"] = %readFile(findingsFileParam)
+      except CatchableError: discard
+
+    try: writeFile(manifestPath, pretty(manifest))
+    except CatchableError: discard
+
+    var res = newJObject()
+    res["status"] = %"audit_ratified"
+    res["task_id"] = manifest.getOrDefault("task_id")
+    res["author"] = %author
+    res["auditor"] = %auditor
+    res["audit_token"] = %auditToken
+    res["merge_tree_sha"] = %effectiveTreeSha
+    res["gate_token"] = %gateToken
+    res["message"] = %"Key 3 Pre-Weave Adversarial Audit ratified. Strand is cleared for trunk weaving."
+    return (res, 0)
+  else:
+    var errObj = newJObject()
+    errObj["status"] = %"error"
+    errObj["error"] = %("Unknown audit action: " & action & ". Expected 'approve', 'reject', or 'status'.")
+    return (errObj, 1)

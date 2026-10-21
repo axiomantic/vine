@@ -188,7 +188,29 @@ def test_vine_strand_lifecycle_and_gate():
             l_data = json.loads(l_out)
             assert l_data["count"] >= 1
 
-            # 6. Weave strand into canonical repository
+            # 6. Key 3 Adversarial Audit Lifecycle
+            # Unaudited weave attempt must fail
+            w_fail_code, w_fail_out, w_fail_err = run_vine("weave", "--dir", strand_path, "--base", "main", "--allow-no-tests")
+            assert w_fail_code == 6, f"Expected Key 3 audit violation (code 6), got {w_fail_code}: {w_fail_err}"
+
+            # Submit strand for audit
+            sub_code, sub_out, sub_err = run_vine("submit", "--dir", strand_path, "--author", "worker-alice", "--allow-no-tests", "--json")
+            assert sub_code == 0, f"Submit failed: {sub_err}"
+            sub_data = json.loads(sub_out)
+            assert sub_data["status"] == "ready_for_audit"
+
+            # Self-audit must be rejected
+            self_code, self_out, self_err = run_vine("audit", "approve", strand_path, "--auditor", "worker-alice", "--json")
+            assert self_code == 6, f"Self-audit should fail with code 6, got {self_code}"
+
+            # Independent auditor ratifies
+            aud_code, aud_out, aud_err = run_vine("audit", "approve", strand_path, "--auditor", "auditor-bob", "--notes", "Passes Key 3", "--json")
+            assert aud_code == 0, f"Audit approval failed code {aud_code}: {aud_err} Out: {aud_out}"
+            aud_data = json.loads(aud_out)
+            assert aud_data["status"] == "audit_ratified"
+            assert aud_data["audit_token"]
+
+            # 7. Weave strand into canonical repository
             w_code, w_out, w_err = run_vine("weave", "--dir", strand_path, "--base", "main", "--allow-no-tests")
             assert w_code == 0, f"Weave failed: {w_err}\nOut: {w_out}"
             w_data = json.loads(w_out)
@@ -252,7 +274,7 @@ def test_vine_gate_catches_mechanical_conflict():
             # 5. Weave without --force must be REJECTED
             w_code, w_out, w_err = run_vine("weave", "--dir", strand_path, "--base", "main")
             assert w_code != 0
-            assert "Two-Key Gate" in w_err or "weave_rejected" in w_err
+            assert "Two-Key Gate" in w_err or "Three-Key Gate" in w_err or "weave_rejected" in w_err
 
         finally:
             if os.path.exists(strand_path):
@@ -437,7 +459,7 @@ def test_vine_diverged_trunk_sync_and_weave():
             subprocess.run(["git", "-C", repo_dir, "commit", "-q", "-m", "chore: independent trunk commit C_trunk"], check=True)
 
             # 4. Attempting to weave directly without sync MUST FAIL fast with clear diagnostic
-            w_code, w_out, w_err = run_vine("weave", "--dir", strand_path, "--base", "main", "--allow-no-tests")
+            w_code, w_out, w_err = run_vine("weave", "--dir", strand_path, "--base", "main", "--allow-no-tests", "--allow-unaudited")
             assert w_code != 0, f"Weave should have failed due to diverged trunk, got code {w_code}\nOut: {w_out}"
             assert "fast_forward_failed" in w_err or "diverged" in w_err
             assert "vine sync" in w_err
@@ -470,7 +492,7 @@ def test_vine_diverged_trunk_sync_and_weave():
             assert json.loads(g_out)["clean"] is True
 
             # 9. Now vine weave succeeds with clean fast-forward
-            w_ok_code, w_ok_out, w_ok_err = run_vine("weave", "--dir", strand_path, "--base", "main", "--allow-no-tests")
+            w_ok_code, w_ok_out, w_ok_err = run_vine("weave", "--dir", strand_path, "--base", "main", "--allow-no-tests", "--allow-unaudited")
             assert w_ok_code == 0, f"Weave failed after sync: {w_ok_err}\nOut: {w_ok_out}"
             assert json.loads(w_ok_out)["status"] == "woven"
 
@@ -854,6 +876,188 @@ def test_vine_changelog_command():
         code, out, err = run_vine("changelog", "--check", "--repo", tmpdir)
         assert code == 0
         assert "Clean: CHANGELOG.md is modified in diff" in out
+
+def test_vine_key3_adversarial_audit_lifecycle():
+    """Verify Key 3 Pre-Weave Adversarial Audit: submit, reject, self-audit block, approve, tamper detection, weave."""
+    with tempfile.TemporaryDirectory(prefix="vine_audit_lifecycle_") as repo_dir:
+        # 1. Initialize git repo
+        subprocess.run(["git", "-C", repo_dir, "init", "-q", "-b", "main"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.name", "Test Committer"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.email", "test@test.local"], check=True)
+        with open(os.path.join(repo_dir, "README.md"), "w") as f:
+            f.write("# Main Repo\n")
+        os.makedirs(os.path.join(repo_dir, "src"), exist_ok=True)
+        with open(os.path.join(repo_dir, "src", "main.py"), "w") as f:
+            f.write("# Main entrypoint\n")
+        subprocess.run(["git", "-C", repo_dir, "add", "README.md", "src/main.py"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "commit", "-q", "-m", "chore: initial commit"], check=True)
+
+        # 2. Create strand
+        s_code, s_out, s_err = run_vine("new", "task-audit-1", "--repo", repo_dir, "--worktree")
+        assert s_code == 0, f"Strand creation failed: {s_err}"
+        strand_data = json.loads(s_out)
+        strand_path = strand_data["strand_path"]
+
+        try:
+            # 3. Add provider and consumer in strand
+            with open(os.path.join(strand_path, "src", "engine.py"), "w") as f:
+                f.write("def run(): return 42\n")
+            with open(os.path.join(strand_path, "src", "main.py"), "w") as f:
+                f.write("from engine import run\nprint(run())\n")
+            subprocess.run(["git", "-C", strand_path, "add", "src/"], check=True)
+            subprocess.run(["git", "-C", strand_path, "commit", "-q", "-m", "feat: provider and consumer"], check=True)
+
+            # 4. Attempt audit approval before gate/submit -> MUST FAIL
+            a_premature_code, a_premature_out, a_premature_err = run_vine(
+                "audit", "approve", strand_path, "--auditor", "auditor-rex", "--json"
+            )
+            assert a_premature_code == 6, f"Expected prerequisite failure (code 6), got {a_premature_code}"
+
+            # 5. Worker submits strand
+            sub_code, sub_out, sub_err = run_vine(
+                "submit", "--dir", strand_path, "--author", "worker-claudia", "--allow-no-tests", "--json"
+            )
+            assert sub_code == 0, f"Submit failed: {sub_err}"
+            sub_data = json.loads(sub_out)
+            assert sub_data["status"] == "ready_for_audit"
+            assert sub_data["author"] == "worker-claudia"
+
+            # 6. Audit status check
+            stat_code, stat_out, stat_err = run_vine("audit", "status", strand_path, "--json")
+            assert stat_code == 0
+            stat_data = json.loads(stat_out)
+            assert stat_data["status"] == "READY_FOR_AUDIT"
+            assert stat_data["author"] == "worker-claudia"
+
+            # 7. Auditor rejects strand with findings
+            rej_code, rej_out, rej_err = run_vine(
+                "audit", "reject", strand_path, "--auditor", "auditor-rex",
+                "--reason", "Missing input validation in engine.py", "--json"
+            )
+            assert rej_code == 0, f"Reject failed: {rej_err}"
+            rej_data = json.loads(rej_out)
+            assert rej_data["status"] == "audit_rejected"
+
+            # 8. Weaving rejected strand MUST FAIL with code 6
+            w_fail_code, w_fail_out, w_fail_err = run_vine(
+                "weave", "--dir", strand_path, "--base", "main", "--allow-no-tests"
+            )
+            assert w_fail_code == 6, f"Expected weave rejection (code 6), got {w_fail_code}"
+
+            # 9. Worker fixes code in strand and re-submits
+            with open(os.path.join(strand_path, "src", "engine.py"), "w") as f:
+                f.write("def run():\n    # Validated\n    return 42\n")
+            subprocess.run(["git", "-C", strand_path, "add", "src/engine.py"], check=True)
+            subprocess.run(["git", "-C", strand_path, "commit", "-q", "-m", "fix: add input validation"], check=True)
+
+            sub2_code, sub2_out, sub2_err = run_vine(
+                "submit", "--dir", strand_path, "--author", "worker-claudia", "--allow-no-tests", "--json"
+            )
+            assert sub2_code == 0
+
+            # 10. Self-audit attempt MUST BE REJECTED with code 6
+            self_code, self_out, self_err = run_vine(
+                "audit", "approve", strand_path, "--auditor", "worker-claudia", "--json"
+            )
+            assert self_code == 6
+            self_data = json.loads(self_out)
+            assert "Self-audit violation" in self_data.get("error", "")
+
+            # 11. Independent auditor approves
+            app_code, app_out, app_err = run_vine(
+                "audit", "approve", strand_path, "--auditor", "auditor-rex",
+                "--notes", "Input validation ratified across all call sites", "--json"
+            )
+            assert app_code == 0, f"Approval failed: {app_err}"
+            app_data = json.loads(app_out)
+            assert app_data["status"] == "audit_ratified"
+            assert app_data["audit_token"]
+
+            # 12. Strand status shows AUDIT_RATIFIED
+            s_stat_code, s_stat_out, s_stat_err = run_vine("status", "--dir", strand_path, "--json")
+            assert s_stat_code == 0
+            assert json.loads(s_stat_out)["lifecycle_state"] == "AUDIT_RATIFIED"
+
+            # 13. Weave succeeds without --allow-unaudited
+            w_code, w_out, w_err = run_vine("weave", "--dir", strand_path, "--base", "main", "--allow-no-tests")
+            assert w_code == 0, f"Weave failed: {w_err}"
+            w_data = json.loads(w_out)
+            assert w_data["status"] == "woven"
+            assert os.path.exists(os.path.join(repo_dir, "src", "engine.py"))
+
+        finally:
+            if os.path.exists(strand_path):
+                subprocess.run(["git", "-C", repo_dir, "worktree", "remove", "--force", strand_path], capture_output=True)
+                subprocess.run(["git", "-C", repo_dir, "worktree", "prune"], capture_output=True)
+                shutil.rmtree(os.path.dirname(strand_path), ignore_errors=True)
+
+def test_vine_defeat_device_gate_rejection():
+    """Verify mechanical rejection of Volkswagen Defeat Devices (prompt keyword interceptors) at Key 2 / submit."""
+    with tempfile.TemporaryDirectory(prefix="vine_defeat_test_") as repo_dir:
+        subprocess.run(["git", "-C", repo_dir, "init", "-q", "-b", "main"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.name", "Test Committer"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.email", "test@test.local"], check=True)
+        os.makedirs(os.path.join(repo_dir, "src"), exist_ok=True)
+        with open(os.path.join(repo_dir, "src", "main.py"), "w") as f:
+            f.write("# Main entrypoint\nprint('hello')\n")
+        subprocess.run(["git", "-C", repo_dir, "add", "src/main.py"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "commit", "-q", "-m", "chore: init"], check=True)
+
+        # 1. Create strand
+        s_code, s_out, s_err = run_vine("new", "task-defeat-1", "--repo", repo_dir, "--worktree")
+        assert s_code == 0
+        strand_path = json.loads(s_out)["strand_path"]
+
+        try:
+            # 2. Add prompt keyword interceptor in application code (defeat device)
+            with open(os.path.join(strand_path, "src", "router.py"), "w") as f:
+                f.write("""def isDeepProjectCreationQuery(q: str) -> bool:
+    return ('flight game' in q or 'nim_3d_flight_game' in q or 'webworker' in q)
+""")
+            # Also wire consumer in main.py
+            with open(os.path.join(strand_path, "src", "main.py"), "w") as f:
+                f.write("from router import isDeepProjectCreationQuery\nprint(isDeepProjectCreationQuery('test'))\n")
+
+            subprocess.run(["git", "-C", strand_path, "add", "src/"], check=True)
+            subprocess.run(["git", "-C", strand_path, "commit", "-q", "-m", "feat: added router"], check=True)
+
+            # 3. Running vine gate MUST FAIL with code 7 (ExitGateDefeatDeviceViolation)
+            g_code, g_out, g_err = run_vine("gate", "--dir", strand_path, "--allow-no-tests", "--json")
+            assert g_code == 7, f"Expected code 7, got {g_code}\nOut: {g_out}\nErr: {g_err}"
+            g_data = json.loads(g_out)
+            assert g_data["defeat_device_gate"] == "FAIL"
+            assert "Volkswagen Defeat Device Violation" in g_data["defeat_device_error"]
+            assert len(g_data["defeat_devices"]) >= 1
+
+            # 4. Running vine submit MUST ALSO FAIL with code 7
+            sub_code, sub_out, sub_err = run_vine("submit", "--dir", strand_path, "--author", "worker-1", "--allow-no-tests", "--json")
+            assert sub_code == 7, f"Expected submit code 7, got {sub_code}\nOut: {sub_out}\nErr: {sub_err}"
+
+            # 5. Passing --allow-defeat-devices allows gate to pass
+            g_bypass_code, g_bypass_out, g_bypass_err = run_vine("gate", "--dir", strand_path, "--allow-no-tests", "--allow-defeat-devices", "--json")
+            assert g_bypass_code == 0, f"Expected bypass code 0, got {g_bypass_code}\nErr: {g_bypass_err}"
+            assert json.loads(g_bypass_out)["defeat_device_gate"] == "SKIPPED (allow-defeat-devices)"
+
+            # 6. Remediate: remove defeat device and use genuine router across provider and consumer
+            with open(os.path.join(strand_path, "src", "router.py"), "w") as f:
+                f.write("""def route_query(q: str, classifier) -> str:
+    return classifier.predict(q)
+""")
+            with open(os.path.join(strand_path, "src", "main.py"), "w") as f:
+                f.write("from router import route_query\nprint(route_query('test', None))\n")
+            subprocess.run(["git", "-C", strand_path, "add", "src/"], check=True)
+            subprocess.run(["git", "-C", strand_path, "commit", "-q", "-m", "fix: genuine classifier routing"], check=True)
+
+            # 7. Gate passes cleanly without bypass flag
+            g_clean_code, g_clean_out, g_clean_err = run_vine("gate", "--dir", strand_path, "--allow-no-tests", "--json")
+            assert g_clean_code == 0, f"Expected clean pass, got {g_clean_code}\nErr: {g_clean_err}"
+            assert json.loads(g_clean_out)["defeat_device_gate"] == "PASS"
+
+        finally:
+            if os.path.exists(strand_path):
+                subprocess.run(["git", "-C", repo_dir, "worktree", "remove", "--force", strand_path], capture_output=True)
+                subprocess.run(["git", "-C", repo_dir, "worktree", "prune"], capture_output=True)
+                shutil.rmtree(os.path.dirname(strand_path), ignore_errors=True)
 
 if __name__ == "__main__":
     import inspect

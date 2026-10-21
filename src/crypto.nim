@@ -94,3 +94,7 @@ proc sha256*(data: string): string =
 
 proc computeGateToken*(mergeTreeSha, testOutputHash: string): string =
   sha256(mergeTreeSha.strip() & ":" & testOutputHash.strip())
+
+proc computeAuditToken*(gateToken, mergeTreeSha, auditor: string): string =
+  sha256(gateToken.strip() & ":" & mergeTreeSha.strip() & ":" & auditor.strip())
+

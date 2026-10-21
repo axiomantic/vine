@@ -1,9 +1,9 @@
 ---
 name: vine
-description: "Rift copy-on-write workspaces (Strands), polyglot build-cache normalizers (.envrc), Two-Key integration gate verification, and fast-forward trunk weaving. Use when spinning up isolated branch workspaces for complex tasks or parallel agents, preventing dirty commits or git submodule corruption, checking merge-tree and semantic test gates before merging, and fast-forwarding verified code back into canonical trunk. Triggers: 'vine', 'strand', 'spin up strand', 'isolated workspace', 'rift workspace', 'two-key gate', 'vine gate', 'vine weave', 'weave branch'."
+description: "Rift copy-on-write workspaces (Strands), polyglot build-cache normalizers (.envrc), Three-Key integration gate verification (vine submit, vine audit, vine weave), and fast-forward trunk weaving. Use when spinning up isolated branch workspaces for complex tasks or parallel agents, preventing dirty commits or git submodule corruption, submitting strands for independent audit, checking merge-tree and semantic test gates, and fast-forwarding verified code back into canonical trunk. Triggers: 'vine', 'strand', 'spin up strand', 'isolated workspace', 'rift workspace', 'three-key gate', 'two-key gate', 'vine gate', 'vine submit', 'vine audit', 'vine weave', 'weave branch'."
 ---
 
-# Vine: Rift Workspaces & Two-Key Gate Verification
+# Vine: Rift Workspaces & Three-Key Gate Verification
 
 ## 0. Prerequisite & Automatic Bootstrapping
 
@@ -29,17 +29,24 @@ npm install -g @axiomantic/rhizo @axiomantic/vine @axiomantic/garden rift-snapsh
 <CRITICAL>
 Never weave a strand into the canonical trunk without passing the Three-Key Gate:
 1. Key 1 (Mechanical): In-memory mechanical mergeability ('git merge-tree' exit code 0). Text mergeability does not imply compilation or correctness.
-2. Key 2 (Semantic): Live project compiler and test suite ('vine gate' exit code 0).
-3. Key 3 (Dialectical Code Audit Pump): Adversarial audit clearing the Five Pillars with 0 open defects under the presumption of guilt.
+2. Key 2 (Semantic & Changelog): Live project compiler, test suite, and changelog verification ('vine gate' exit code 0).
+3. Key 3 (Dialectical Code Audit Pump): Independent adversarial audit clearing the Five Pillars with 0 open defects under the presumption of guilt ('vine audit approve' exit code 0).
 </CRITICAL>
 
 <CRITICAL>
-Closed-Circuit Two-Point Diff, Literal Fidelity & Holistic Integration Mandate:
+The Worker is NOT the Auditor Invariant:
+Workers are autonomous implementers, NEVER their own auditors. When a worker completes their tasks and passes Keys 1 & 2, they MUST run 'vine submit' to mark the strand READY_FOR_AUDIT. The worker is strictly forbidden from executing 'vine audit approve' on their own work.
+The Lead Orchestrator provisions an independent Adversarial Auditor persona to inspect the strand, verify the Five Pillars, and run 'vine audit approve --auditor <name>'. Self-auditing is mechanically rejected by Vine (ExitGateAuditViolation = 6).
+</CRITICAL>
+
+<CRITICAL>
+Closed-Circuit Two-Point Diff, Literal Fidelity, Anti-Defeat-Device & Holistic Integration Mandate:
 1. Two-Point Diff: Every strand deliverable must contain both a Provider (new capability) and an active Consumer call-site (live entrypoint, router, CLI dispatcher, or UI). Modules tested solely by their own test suites are strictly prohibited as incomplete shelfware.
-2. Holistic Integration (Anti-Stub / Anti-Toy): The implementation must be real (no fake data mocks, shallow heuristics, artificial sleeps, or naive string splits).
-3. Literal Fidelity & True-Fidelity Mandate (Anti-Approximation): When recreating, porting, reverse-engineering, duplicating functionality, or fulfilling an operator directive, the code must exhibit literal, true fidelity. Approximations ("looks right", "good enough for happy paths") are strictly rejected. The implementation must match all edge cases, type boundaries, flags, and error flows of the original reference or prompt specification.
-4. Aggressive Replacement Purge: Any legacy or obsolete code targeted for replacement MUST be deleted in the same strand—never preserved as a vestigial fallback or commented out.
-5. Structural Assertion Rigor: Reject loose/partial assertions (`assert 'foo' in bar`). Enforce full structural equality (`assert actual == expected`) and negative controls.
+2. Holistic Integration & Anti-Defeat-Device: The implementation must be real (no fake data mocks, shallow heuristics, artificial sleeps, naive string splits, or prompt keyword interceptors like 'if flight game in q'). Any prompt-matching defeat device in production routing or compiler paths that bypasses genuine pipelines to fake benchmark compliance is mechanically rejected at Key 2 (`ExitGateDefeatDeviceViolation` = 7) and Key 3.
+3. Autonomous Intensive Audit Mandate: Intensive Five-Pillar adversarial audits (Key 3) are Standard Operating Procedure (SOP). They are pre-authorized, mandatory, and autonomous across the Triad. Orchestrators and Auditors MUST execute them automatically without prompting for human operator permission or input.
+4. Literal Fidelity & True-Fidelity Mandate (Anti-Approximation): When recreating, porting, reverse-engineering, duplicating functionality, or fulfilling an operator directive, the code must exhibit literal, true fidelity. Approximations ("looks right", "good enough for happy paths") are strictly rejected. The implementation must match all edge cases, type boundaries, flags, and error flows of the original reference or prompt specification.
+5. Aggressive Replacement Purge: Any legacy or obsolete code targeted for replacement MUST be deleted in the same strand—never preserved as a vestigial fallback or commented out.
+6. Structural Assertion Rigor: Reject loose/partial assertions (`assert 'foo' in bar`). Enforce full structural equality (`assert actual == expected`) and negative controls.
 </CRITICAL>
 
 <INVARIANT>
@@ -64,7 +71,7 @@ Compaction Preservation Rider & Post-Compact Invariant (GVR-010):
 Context compaction purges detailed operational invariants, ceremony rules, and protocol mechanics from working memory.
 
 1. **Compacting Agent Obligation**:
-   If and only if this session has utilized `vine` (strands, workspace isolation, Two-Key gate), `garden`, or `rhizo`:
+   If and only if this session has utilized `vine` (strands, workspace isolation, Three-Key gate), `garden`, or `rhizo`:
    The compacting agent MUST preserve the `SWARM_RUNTIME_STATE` block verbatim AND prepend the following mandatory instruction at the very top of the post-compaction summary preamble:
 
 <!-- POST-COMPACTION INVARIANT: CEREMONY RESTORATION -->
@@ -104,7 +111,7 @@ Context compaction purges detailed operational invariants, ceremony rules, and p
 
 ## Unified Work Item State Machine (WISM)
 
-Rhizo, Garden, and Vine coordinate all multi-agent work through the formal **Work Item State Machine (WISM)**. Every task progresses through 10 deterministic states with atomic Redis transitions, automated DAG unblocking, and Two-Key integration gates.
+Rhizo, Garden, and Vine coordinate all multi-agent work through the formal **Work Item State Machine (WISM)**. Every task progresses through deterministic states with atomic Redis transitions, automated DAG unblocking, and Three-Key integration gates.
 
 ```mermaid
 stateDiagram-v2
@@ -119,14 +126,18 @@ stateDiagram-v2
 
     CLAIMED --> IN_PROGRESS : Worker provisions strand (vine new <id>)
     IN_PROGRESS --> IN_PROGRESS : Progress reported (rhizo task progress, lease extended)
-    IN_PROGRESS --> GATE_EVALUATING : Verification initiated (vine gate)
+    IN_PROGRESS --> GATE_EVALUATING : Verification initiated (vine submit / vine gate)
     IN_PROGRESS --> YIELDED : rhizo task yield (Returned to pool)
     IN_PROGRESS --> ORPHANED : Lease expires without progress
 
-    GATE_EVALUATING --> IN_PROGRESS : Gate failed (Tests red or merge conflict)
-    GATE_EVALUATING --> READY_TO_WEAVE : Two-Key Gate PASSED (Cryptographic gate token stamped)
+    GATE_EVALUATING --> IN_PROGRESS : Gate failed (Tests red, changelog missing, or merge conflict)
+    GATE_EVALUATING --> READY_FOR_AUDIT : Keys 1 & 2 PASSED (vine submit, gate token stamped)
 
-    READY_TO_WEAVE --> COMPLETED : vine weave && rhizo task complete (Unblocks downstream DAG children)
+    READY_FOR_AUDIT --> AUDIT_RATIFIED : Key 3 PASSED (vine audit approve, audit token stamped)
+    READY_FOR_AUDIT --> AUDIT_REJECTED : Key 3 FAILED (vine audit reject)
+    AUDIT_REJECTED --> IN_PROGRESS : Remediate defects in strand
+
+    AUDIT_RATIFIED --> COMPLETED : vine weave && rhizo task complete (Unblocks downstream DAG children)
 
     ORPHANED --> QUEUED : Re-queued for retry (attempts < 3)
     ORPHANED --> DEAD_LETTER : Max delivery retries exceeded (attempts >= 3)
@@ -170,17 +181,24 @@ stateDiagram-v2
    +-------------+
      │        ▲
      │ vine   │ Gate fails
-     │ gate   │ (Tests red or conflict)
+     │ submit │ (Tests red or conflict)
      ▼        │
   +-----------------+
   | GATE_EVALUATING |
   +-----------------+
           │
-          │ Two-Key Gate PASSED (Key 1 merge-tree + Key 2 live test suite green)
+          │ Keys 1 & 2 PASSED (vine submit: merge-tree + live test suite green)
           ▼
-  +----------------+
-  | READY_TO_WEAVE |
-  +----------------+
+  +------------------+
+  | READY_FOR_AUDIT  | ◄──────────────────────┐
+  +------------------+                        │
+     │            │                           │
+     │ approve    │ reject                    │ Remediate
+     ▼            ▼                           │
+  +------------+ +----------------+           │
+  | AUDIT_     | | AUDIT_REJECTED | ──────────┘
+  | RATIFIED   | +----------------+
+  +------------+
           │
           │ vine weave && rhizo task complete
           ▼
@@ -196,20 +214,15 @@ stateDiagram-v2
 | **`DRAFTED`** | `rhizo task create <id> --title <t>` | Creates immutable task contract hash `task:<id>` in Redis. | N/A |
 | **`BLOCKED`** | Evaluated on create | Stamped if `depends_on` contains incomplete tasks. Workers cannot claim. | N/A |
 | **`QUEUED`** | Auto on create or parent complete | Pushed to queue/inbox. Available for worker consumption. | N/A |
-| **`DELIVERED`** | `rhizo listen` consumes payload | **Atomically moves into `task:<id>` DELIVERED state**. Instant transport receipt emitted to orchestrator. Mirrored to local `~/.config/rhizo/current_task.json` for turn-end hook interlocks. | 180s Receipt Timeout $
-ightarrow$ `ORPHANED` |
-| **`CLAIMED`** | `rhizo task claim <id>` / `rhizo reply` | Worker acquires monotonic fencing lease. Isolated Vine strand provisioned (`vine new <id>`). Turn-end hook blocks until work starts. | Lease expires $
-ightarrow$ `ORPHANED` |
-| **`IN_PROGRESS`** | Worker coding in strand | Enforces single-active-lease invariant. Periodic `rhizo task progress` extends lease. | Lease expires $
-ightarrow$ `ORPHANED` |
-| **`GATE_EVALUATING`**| `vine gate` | Key 1 (mechanical merge-tree) & Key 2 (live compiler/test suite) evaluated. | Exit 1 $
-ightarrow$ `CONFLICTED`<br>Exit 2 $
-ightarrow$ `GATE_FAILED` |
-| **`READY_TO_WEAVE`** | Both keys pass 100% | Cryptographic gate token stamped (`gate_token`). Report sent to orchestrator. | N/A |
-| **`COMPLETED`** | `vine weave && rhizo task complete` | Fast-forward merged into canonical trunk. Strand pruned. Locks released. **Downstream DAG dependencies automatically unblocked (`BLOCKED` $
-ightarrow$ `QUEUED`)!** | N/A |
-| **`ORPHANED`** | Receipt timeout or lease expired | Stalled worker detected. Increments `delivery_attempts`. If $\ge 3 
-ightarrow$ `DEAD_LETTER`. Otherwise returns to `QUEUED`. | Escalates to operator if Dead-Lettered |
+| **`DELIVERED`** | `rhizo listen` consumes payload | **Atomically moves into `task:<id>` DELIVERED state**. Instant transport receipt emitted to orchestrator. Mirrored to local `~/.config/rhizo/current_task.json` for turn-end hook interlocks. | 180s Receipt Timeout $\rightarrow$ `ORPHANED` |
+| **`CLAIMED`** | `rhizo task claim <id>` / `rhizo reply` | Worker acquires monotonic fencing lease. Isolated Vine strand provisioned (`vine new <id>`). Turn-end hook blocks until work starts. | Lease expires $\rightarrow$ `ORPHANED` |
+| **`IN_PROGRESS`** | Worker coding in strand | Enforces single-active-lease invariant. Periodic `rhizo task progress` extends lease. | Lease expires $\rightarrow$ `ORPHANED` |
+| **`GATE_EVALUATING`**| `vine submit` / `vine gate` | Key 1 (mechanical merge-tree) & Key 2 (live compiler/test suite + changelog) evaluated. | Exit 1 $\rightarrow$ `CONFLICTED`<br>Exit 2 $\rightarrow$ `GATE_FAILED` |
+| **`READY_FOR_AUDIT`**| `vine submit` | Keys 1 & 2 passed. Strand submitted for independent adversarial review. | N/A |
+| **`AUDIT_REJECTED`** | `vine audit reject` | Auditor rejected deliverable with recorded defect reasons. Worker returns to `IN_PROGRESS` for delta remediation. | N/A |
+| **`AUDIT_RATIFIED`** | `vine audit approve` | Key 3 passed! Cryptographic `audit_token` stamped. Auditor and author identities strictly decoupled (`auditor != author`). | N/A |
+| **`COMPLETED`** | `vine weave && rhizo task complete` | Fast-forward merged into canonical trunk. Strand pruned. Locks released. **Downstream DAG dependencies automatically unblocked (`BLOCKED` $\rightarrow$ `QUEUED`)!** | N/A |
+| **`ORPHANED`** | Receipt timeout or lease expired | Stalled worker detected. Increments `delivery_attempts`. If $\ge 3 \rightarrow$ `DEAD_LETTER`. Otherwise returns to `QUEUED`. | Escalates to operator if Dead-Lettered |
 | **`YIELDED`** | `rhizo task yield <id>` | Worker gracefully steps aside. Task returned to `QUEUED`. | N/A |
 | **`DEAD_LETTER`** | Retries exhausted ($\ge 3$) | Moved to dead-letter queue. Alerts orchestrator and operator. | Requires manual operator triage |
 
@@ -223,8 +236,12 @@ ightarrow$ `DEAD_LETTER`. Otherwise returns to `QUEUED`. | Escalates to operator
 | `vine new <task_id> --worktree` | Creates a strand using Git worktree fallback. | `vine new task-101 --worktree` |
 | `vine status [<task_id>] [--json]` | Inspects commits ahead/behind, metadata filtering, and lifecycle state. | `vine status --json` |
 | `vine collisions [--json]` | Forecasts file footprint overlaps across active strands before merge. | `vine collisions --json` |
-| `vine gate [--json] [-- <cmd...>]` | Evaluates Two-Key Gate (mechanical merge-tree, live test suite, and changelog). Supports `--allow-no-changelog`, `--ensure-unreleased`, and `-- <cmd...>`. | `vine gate --json -- nimble test` |
-| `vine weave` | Fast-forwards verified strand into trunk and prunes workspace. Supports `--allow-no-changelog`. | `vine weave` |
+| `vine gate [--json] [-- <cmd...>]` | Evaluates Keys 1 & 2 (mechanical merge-tree, live test suite, and changelog). Supports `--allow-no-changelog`, `--ensure-unreleased`, and `-- <cmd...>`. | `vine gate --json -- nimble test` |
+| `vine submit [--author <name>]` | Worker command: evaluates Keys 1 & 2 and transitions strand to `READY_FOR_AUDIT`. Records author identity. | `vine submit --author implementer` |
+| `vine audit status` | Queries current audit state, author, auditor, and rejection reasons. | `vine audit status --json` |
+| `vine audit approve --auditor <name>` | Independent Auditor command: evaluates Five Pillars, verifies Keys 1 & 2, ensures `auditor != author`, stamps cryptographic `audit_token`, and marks `AUDIT_RATIFIED`. | `vine audit approve --auditor auditor-1` |
+| `vine audit reject --reason <text>` | Independent Auditor command: marks strand `AUDIT_REJECTED` and records defects for worker remediation. | `vine audit reject --reason "Missing consumer wire"` |
+| `vine weave [--allow-unaudited]` | Fast-forwards verified and ratified strand into trunk and prunes workspace. Blocks un-audited strands unless `--allow-unaudited` or `--force`. | `vine weave` |
 | `vine changelog [entry]` | Appends entry to changelog under `## [Unreleased]`. Supports `--ensure-unreleased`, `--section <sec>`, and `--check`. | `vine changelog "Add feature"` |
 | `vine list` | Displays active strands, branch mappings, and manifests. | `vine list` |
 | `vine sync` | Re-synchronizes diverged canonical trunk changes into active strand. | `vine sync` |
@@ -249,28 +266,39 @@ vine changelog "feat: add capability X with consumer Y"
 ```
 Or ensure the section is scaffolded with `vine changelog --ensure-unreleased`.
 
-### Step 3: Verify Three-Key Gate & Adversarial Audit Clearance
-Before signaling completion or requesting a trunk weave:
-1. **Key 1 & Key 2 Evaluation**:
+### Step 3: Worker Verification & Strand Submission (`vine submit`)
+When work is complete and passes tests inside the strand:
 ```bash
-vine gate --json
+vine submit --author <worker_name>
 ```
-- **Exit 0**: Both Key 1 (mechanical merge-tree) and Key 2 (semantic compiler/test runner + changelog) passed.
-- **Exit 1**: Key 1 failed (conflicts with canonical trunk). Run `vine sync` inside strand to resolve conflicts.
-- **Exit 2**: Key 2 failed (compiler or test failure). Fix code inside strand.
-- **Exit 5**: Changelog violation (changelog exists but missing `## [Unreleased]` section or unchanged in diff). Run `vine changelog` or pass `--allow-no-changelog`.
+- Runs Key 1 (mechanical merge-tree) and Key 2 (semantic compiler/test runner + changelog).
+- If successful, records author and stamps strand as `READY_FOR_AUDIT`.
+- The worker notifies the orchestrator / auditor over Rhizo: `rhizo send @auditor "Strand <task_id> ready for Key 3 audit"`.
 
-2. **Key 3: Pre-Weave Adversarial Audit (Dialectical Code Audit Pump)**:
-Assemble the **Deliverable Claim Bundle** and verify compliance against the Five Pillars:
-- **Two-Point Diff**: Both Provider and live Consumer call-site wired.
-- **Holistic Integration**: Real state and error handling (no fake mocks or stubs).
-- **Literal Fidelity Mandate**: Literal adherence to operator directives and exact functional parity with reference specifications (zero approximations).
-- **Replacement Purge**: All obsolete code and fallbacks deleted.
-- **Structural Assertions**: Full object identity (`assert actual == expected`) and negative controls.
-Remediate any audit findings inside the strand through the **Delta Re-Pump Loop** until 0 defects remain.
+> [!CRITICAL]
+> **THE WORKER IS NOT THE AUDITOR**: Workers are strictly forbidden from approving their own strands. Calling `vine audit approve` with the same identity as author fails with exit code 6 (`ExitGateAuditViolation`).
 
-### Step 4: Trunk Weaving & Post-Push CI Verification
-Once all Three Keys pass (Key 1, Key 2, and Key 3 audit clearance):
+### Step 4: Independent Adversarial Audit (Key 3: Five-Pillar Audit Pump)
+The independent **Adversarial Auditor** inspects the strand at `strand_path`:
+1. Verifies the Five Pillars under the presumption of guilt:
+   - **Two-Point Diff**: Both Provider and live Consumer call-site wired.
+   - **Holistic Integration**: Real state and error handling (no fake mocks or stubs).
+   - **Literal Fidelity Mandate**: Literal adherence to operator directives and exact functional parity with reference specifications.
+   - **Replacement Purge**: All obsolete code and fallbacks deleted.
+   - **Structural Assertions**: Full object identity (`assert actual == expected`) and negative controls.
+2. If defects are found:
+   ```bash
+   vine audit reject --reason "Defect description" --auditor <auditor_name>
+   ```
+   Worker remediates findings inside the strand through the **Delta Re-Pump Loop** and re-submits with `vine submit`.
+3. If 0 defects remain:
+   ```bash
+   vine audit approve --auditor <auditor_name>
+   ```
+   Stamps cryptographic `audit_token` and transitions strand to `AUDIT_RATIFIED`.
+
+### Step 5: Trunk Weaving & Post-Push CI Verification
+The Lead Orchestrator weaves the ratified strand:
 ```bash
 vine weave
 ```

@@ -9,7 +9,7 @@ Vine provides zero-drag workspace virtualization, polyglot build-cache normaliza
 - **Strands**: Instantaneous Rift copy-on-write workspace clones (`vine new <task_id>`). Uses `rift` for zero-cost snapshot cloning (in ~9s with 0 extra disk blocks) and `git worktree` for monolithic fallback (in ~280ms).
 - **Universal CoW Vendoring**: Clones dependency caches (`deps`, `node_modules`, `vendor`) in <80ms without physical disk duplication.
 - **Polyglot Build Cache Layer**: Auto-activates non-destructive `.envrc` normalizing `ccache`, `sccache`, `uv` clone mode, and `nimcache`.
-- **The Two-Key Gate**: Ensures zero "Green Mirage" by requiring both Key 1 (in-memory mechanical `git merge-tree` exit 0) and Key 2 (live compiler & test suite exit 0).
+- **The Three-Key Gate**: Ensures zero "Green Mirage" by requiring Key 1 (in-memory mechanical `git merge-tree` exit 0), Key 2 (live compiler & test suite exit 0), and Key 3 (independent adversarial audit ratification via `vine audit`).
 - **Weaving**: Fast-forwards verified strands back into the canonical trunk (`vine weave`).
 
 ---
@@ -20,26 +20,26 @@ Vine provides comprehensive workspace, gate, and build cache specifications:
 
 ### Core Protocols & Architecture
 * **[Strand Lifecycle Specification](docs/strand_lifecycle.md)**: Zero-cost Rift Copy-on-Write strands, directory isolation, `.vine.json` runtime manifest, and collision detection.
-* **[Two-Key Gate Specification](docs/two_key_gate.md)**: Zero "Green Mirage" philosophy, Key 1 mechanical merge-tree + Key 2 live test discovery cascade and cryptographic gate tokens.
+* **[Three-Key Gate Specification](docs/two_key_gate.md)**: Zero "Green Mirage" philosophy, Key 1 mechanical merge-tree + Key 2 live test discovery cascade + Key 3 independent adversarial code audit ratification and cryptographic gate tokens.
 * **[Polyglot Build Cache Normalization](docs/cache_normalization.md)**: Non-destructive `.envrc` chaining, Ccache, Cargo target, uv clone links, and Nimcache unification.
-* **[CLI Reference Manual](docs/cli_reference.md)**: Complete catalog of all Vine commands (`new`, `status`, `collisions`, `gate`, `weave`, `list`, `sync`, `prune`).
+* **[CLI Reference Manual](docs/cli_reference.md)**: Complete catalog of all Vine commands (`new`, `status`, `collisions`, `gate`, `submit`, `audit`, `weave`, `list`, `sync`, `prune`).
 * **[Configuration Architecture](docs/configuration.md)**: Layered configuration hierarchy, workspace paths, and gate options.
-* **[Agent Constitution & Invariants (AGENTS.md)](AGENTS.md)**: Workspace isolation rules, sovereign worker allocation, and Two-Key discipline.
+* **[Agent Constitution & Invariants (AGENTS.md)](AGENTS.md)**: Workspace isolation rules, sovereign worker allocation, and Three-Key discipline.
 
 ---
 
 ## Standalone Yet Designed for the Axiomantic Triad
 
-Vine is completely standalone and can be used on its own for zero-cost Rift copy-on-write workspace cloning, `.envrc` build-cache normalization, and Two-Key gate verification on any git repository.
+Vine is completely standalone and can be used on its own for zero-cost Rift copy-on-write workspace cloning, `.envrc` build-cache normalization, and Three-Key gate verification on any git repository.
 
 > [!NOTE]
 > ### Quick Note: Using Garden as your High-Level Swarm Wrapper
 > **Looking for the high-level multi-agent conductor? Use [Garden](https://github.com/axiomantic/garden).**  
-> While `vine` provides isolated branch workspaces (strands) and the Two-Key Gate, **Garden** is the high-level umbrella framework. Simply start a session in your favorite coding harness (Antigravity, Claude Code, OpenCode) and type `"garden: I want to build [feature]"`. Garden conducts an intake interview, generates clean 10-backtick prompt cards for your terminal tabs, and coordinates all workers over Rhizo and Vine!
+> While `vine` provides isolated branch workspaces (strands) and the Three-Key Gate, **Garden** is the high-level umbrella framework. Simply start a session in your favorite coding harness (Antigravity, Claude Code, OpenCode) and type `"garden: I want to build [feature]"`. Garden conducts an intake interview, generates clean 10-backtick prompt cards for your terminal tabs, and coordinates all workers over Rhizo and Vine!
 
 However, Vine is designed from the ground up to pair seamlessly with **Rhizo** and **Garden**:
 - [**Rhizo**](https://github.com/axiomantic/rhizo) (Transport & Concurrency): Inter-agent messaging bus, monotonic fencing locks, and task queues over Redis.
-- **Vine** (Workspaces & Verification): Zero-cost Rift copy-on-write strands, polyglot build-cache normalization, and the Two-Key integration gate (`git merge-tree` mechanical + compiler/test suite semantic checks).
+- **Vine** (Workspaces & Verification): Zero-cost Rift copy-on-write strands, polyglot build-cache normalization, and the Three-Key integration gate (`git merge-tree` mechanical + compiler/test suite semantic checks + independent adversarial audit ratification).
 - [**Garden**](https://github.com/axiomantic/garden) (Swarm Methodology & High-Level Wrapper): Conversational project intake interview, prompt-bootstrapped worker fleets (10-backtick cards), 3-stage empirical dialectical pump (research, architecture, audit), and master ceremonial implementation planning.
 
 ## Installation
@@ -121,8 +121,10 @@ vine prune --apply
 | `vine status` | `[<strand>] [--dir <path>] [--json]` | Inspect deep lifecycle state (`PROVISIONED`, `IN_PROGRESS`, `GATE_PASSED`, etc.) and commits ahead/behind. |
 | `vine collisions` | `[--repo <dir>] [--json]` | Forecast file-footprint overlaps across concurrent worker strands. |
 | `vine sync` | `[--dir <path>] [--base <branch>]` | Fast-forward or merge upstream trunk changes cleanly into strand. |
-| `vine gate` | `[--dir <path>] [--base <branch>] [--skip-tests] [-- <command...>]` | Run Two-Key Gate: Key 1 mechanical pre-check and Key 2 semantic test suite (`-- <cmd...>` or `--test-command <cmd>`). |
-| `vine weave` | `[--dir <path>] [--base <branch>] [--force]` | Fast-forward merge verified strand into canonical trunk and prune. |
+| `vine gate` | `[--dir <path>] [--base <branch>] [--submit] [--author <name>] [--skip-tests] [-- <command...>]` | Run Three-Key Gate: Key 1 mechanical pre-check and Key 2 semantic test suite (`-- <cmd...>` or `--test-command <cmd>`). |
+| `vine submit` | `[--dir <path>] [--author <name>] [--allow-no-tests]` | Run Keys 1 & 2 and submit strand for independent Key 3 Adversarial Audit. |
+| `vine audit` | `<approve\|reject\|status> [--auditor <name>] [--reason <text>] [--notes <text>]` | Key 3 Adversarial Audit: reject defects, check status, or ratify approval with cryptographic audit token (worker self-audit is strictly blocked). |
+| `vine weave` | `[--dir <path>] [--base <branch>] [--force] [--allow-unaudited]` | Verify Three-Key Gate and fast-forward merge ratified strand into canonical trunk and prune. |
 | `vine prune` | `[--repo <dir>] [--apply]` | Remove inactive or completed strands (dry-run by default). |
 | `vine config <init\|show>`| `[--json]` | Scaffold or display project `vine.toml` configuration. |
 | `vine guide <install\|check\|uninstall>` | `[path]` | Install or manage Vine Coordination Guide in `AGENTS.md`. |

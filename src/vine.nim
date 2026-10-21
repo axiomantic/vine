@@ -14,9 +14,11 @@ proc printHelp() =
   echo "  vine list [--repo <path>] [--all]"
   echo "  vine status [task_id|path] [--dir <path>] [--json]"
   echo "  vine collisions [--repo <path>] [--json]"
-  echo "  vine gate [branch] [--base <ref>] [--dir <path>] [--timeout <sec>] [--skip-tests] [--allow-no-tests] [--allow-test-only] [--allow-no-changelog] [--ensure-unreleased] [--test-command <cmd>] [--json] [-- <command...>]"
+  echo "  vine gate [branch] [--base <ref>] [--dir <path>] [--submit] [--author <name>] [--timeout <sec>] [--skip-tests] [--allow-no-tests] [--allow-test-only] [--allow-no-changelog] [--allow-defeat-devices] [--ensure-unreleased] [--test-command <cmd>] [--json] [-- <command...>]"
+  echo "  vine submit [task_id|path] [--dir <path>] [--author <name>] [--timeout <sec>] [--allow-no-tests] [--allow-test-only] [--allow-no-changelog] [--allow-defeat-devices] [--test-command <cmd>] [--json]"
+  echo "  vine audit <approve|reject|status> [task_id|path] [--auditor <name>] [--reason <text>] [--notes <text>] [--findings <file>] [--dir <path>] [--json]"
   echo "  vine sync [--dir <path>] [--base <ref>] [--rebase]"
-  echo "  vine weave [branch] [--base <ref>] [--dir <path>] [--force] [--allow-no-tests] [--allow-no-changelog]"
+  echo "  vine weave [branch] [--base <ref>] [--dir <path>] [--force] [--allow-no-tests] [--allow-no-changelog] [--allow-unaudited]"
   echo "  vine changelog [entry] [--dir <path>] [--section <sec>] [--ensure-unreleased] [--check]"
   echo "  vine prune [--repo <path>] [--max-age <hours>] [--apply]"
   echo "  vine update [--check] [--apply] [--skip <pkg@ver>] [--disable] [--enable] [--json]"
@@ -165,6 +167,9 @@ proc main() =
     var allowTestOnly = false
     var allowNoChangelog = false
     var autoEnsureUnreleased = false
+    var allowDefeatDevices = false
+    var submit = false
+    var author = ""
     var timeoutSec = 0.0
     var testCmd = ""
     var jsonOut = false
@@ -184,6 +189,9 @@ proc main() =
       elif a == "--test-command" and i + 1 < args.len:
         testCmd = args[i+1]; inc i
       elif a.startsWith("--test-command="): testCmd = a[15..^1]
+      elif a == "--author" and i + 1 < args.len:
+        author = args[i+1]; inc i
+      elif a.startsWith("--author="): author = a[9..^1]
       elif (a == "--timeout" or a == "-t") and i + 1 < args.len:
         try: timeoutSec = parseFloat(args[i+1])
         except CatchableError: discard
@@ -195,24 +203,33 @@ proc main() =
       elif a == "--allow-no-tests": allowNoTests = true
       elif a == "--allow-test-only": allowTestOnly = true
       elif a == "--allow-no-changelog": allowNoChangelog = true
+      elif a == "--allow-defeat-devices": allowDefeatDevices = true
       elif a == "--ensure-unreleased": autoEnsureUnreleased = true
+      elif a == "--submit": submit = true
       elif a == "--json": jsonOut = true
       elif not a.startsWith("-") and branch.len == 0:
         branch = a
       inc i
-    let (res, code) = doBraidGate(branch, baseRef, strandDir, skipTests, testCmd, allowNoTests, allowTestOnly, timeoutSec, allowNoChangelog, autoEnsureUnreleased)
+    let (res, code) = doBraidGate(branch, baseRef, strandDir, skipTests, testCmd, allowNoTests, allowTestOnly, timeoutSec, allowNoChangelog, autoEnsureUnreleased, submit, author, allowDefeatDevices)
     if jsonOut:
       echo pretty(res)
     else:
       if code == 0:
-        echo "[GREEN] Two-Key Gate Passed!"
+        if submit or (res.hasKey("status") and res["status"].getStr() == "ready_for_audit"):
+          echo "[GREEN] Keys 1 & 2 Passed — Strand Submitted for Key 3 Adversarial Audit!"
+        else:
+          echo "[GREEN] Three-Key Gate: Keys 1 & 2 Passed (Ready for Audit)!"
         echo "  Mechanical: Clean (tree: " & res{"merge_tree_sha"}.getStr("") & " in " & $res{"mechanical_gate_ms"}.getFloat() & " ms)"
         if res.hasKey("test_command"):
           echo "  Semantic  : 100% Green (" & res{"test_command"}.getStr() & " in " & $res{"test_duration_ms"}.getFloat() & " ms)"
         if res.hasKey("changelog_gate"):
           echo "  Changelog : " & res{"changelog_gate"}.getStr()
+        if res.hasKey("defeat_device_gate"):
+          echo "  Defeat-Dev: " & res{"defeat_device_gate"}.getStr()
         if res.hasKey("gate_token"):
           echo "  Gate Token: " & res{"gate_token"}.getStr()
+        if res.hasKey("author"):
+          echo "  Author    : " & res{"author"}.getStr()
       elif code == 1:
         stderr.writeLine("[CONFLICT] Key 1 Mechanical Gate Failed:")
         for c in res{"conflicts"}: stderr.writeLine("  " & c.getStr())
@@ -227,6 +244,138 @@ proc main() =
       elif code == 5:
         stderr.writeLine("[VIOLATION] Changelog Gate Verification Failed:")
         stderr.writeLine(res{"changelog_error"}.getStr())
+      elif code == 7:
+        stderr.writeLine("[VIOLATION] Defeat Device Scan Failed:")
+        stderr.writeLine(res{"defeat_device_error"}.getStr())
+        if res.hasKey("defeat_devices"):
+          for d in res{"defeat_devices"}:
+            stderr.writeLine("  " & d{"file"}.getStr() & ":" & $d{"line_number"}.getInt() & " -> " & d{"line"}.getStr())
+    quit(code)
+
+  of "submit":
+    var strandDir = ""
+    var author = ""
+    var allowNoTests = false
+    var allowTestOnly = false
+    var allowNoChangelog = false
+    var allowDefeatDevices = false
+    var timeoutSec = 0.0
+    var testCmd = ""
+    var jsonOut = false
+    var i = 1
+    while i < args.len:
+      let a = args[i]
+      if a == "--dir" and i + 1 < args.len:
+        strandDir = args[i+1]; inc i
+      elif a.startsWith("--dir="): strandDir = a[6..^1]
+      elif a == "--author" and i + 1 < args.len:
+        author = args[i+1]; inc i
+      elif a.startsWith("--author="): author = a[9..^1]
+      elif a == "--test-command" and i + 1 < args.len:
+        testCmd = args[i+1]; inc i
+      elif a.startsWith("--test-command="): testCmd = a[15..^1]
+      elif (a == "--timeout" or a == "-t") and i + 1 < args.len:
+        try: timeoutSec = parseFloat(args[i+1])
+        except CatchableError: discard
+        inc i
+      elif a.startsWith("--timeout="):
+        try: timeoutSec = parseFloat(a[10..^1])
+        except CatchableError: discard
+      elif a == "--allow-no-tests": allowNoTests = true
+      elif a == "--allow-test-only": allowTestOnly = true
+      elif a == "--allow-no-changelog": allowNoChangelog = true
+      elif a == "--allow-defeat-devices": allowDefeatDevices = true
+      elif a == "--json": jsonOut = true
+      elif not a.startsWith("-") and strandDir.len == 0:
+        strandDir = a
+      inc i
+    let (res, code) = doStrandSubmit(strandDir, author, testCmd, allowNoTests, allowTestOnly, allowNoChangelog, timeoutSec, allowDefeatDevices)
+    if jsonOut:
+      echo pretty(res)
+    else:
+      if code == 0:
+        echo "[SUBMITTED] Strand successfully submitted for Key 3 Adversarial Audit!"
+        echo "  Task ID   : " & res{"task_id"}.getStr("")
+        echo "  Author    : " & res{"author"}.getStr("")
+        echo "  Gate Token: " & res{"gate_token"}.getStr("")
+        echo "  Path      : " & res{"strand_path"}.getStr("")
+      else:
+        if res.hasKey("compiler_output"):
+          stderr.writeLine("[FAILURE] Gate tests failed during submission:\n" & res{"compiler_output"}.getStr())
+        elif res.hasKey("defeat_device_error"):
+          stderr.writeLine("[VIOLATION] " & res{"defeat_device_error"}.getStr())
+        elif res.hasKey("changelog_error"):
+          stderr.writeLine("[VIOLATION] " & res{"changelog_error"}.getStr())
+        elif res.hasKey("two_point_diff_error"):
+          stderr.writeLine("[VIOLATION] " & res{"two_point_diff_error"}.getStr())
+        else:
+          stderr.writeLine(pretty(res))
+    quit(code)
+
+  of "audit":
+    if args.len < 2:
+      stderr.writeLine("Usage: vine audit <approve|reject|status> [task_id|path] [--auditor <name>] [--reason <text>] [--notes <text>] [--findings <file>] [--dir <path>] [--json]")
+      quit(1)
+    let subaction = args[1].toLowerAscii
+    var strandDir = ""
+    var auditor = ""
+    var reason = ""
+    var notes = ""
+    var findingsFile = ""
+    var jsonOut = false
+    var i = 2
+    while i < args.len:
+      let a = args[i]
+      if a == "--dir" and i + 1 < args.len:
+        strandDir = args[i+1]; inc i
+      elif a.startsWith("--dir="): strandDir = a[6..^1]
+      elif a == "--auditor" and i + 1 < args.len:
+        auditor = args[i+1]; inc i
+      elif a.startsWith("--auditor="): auditor = a[10..^1]
+      elif a == "--reason" and i + 1 < args.len:
+        reason = args[i+1]; inc i
+      elif a.startsWith("--reason="): reason = a[9..^1]
+      elif a == "--notes" and i + 1 < args.len:
+        notes = args[i+1]; inc i
+      elif a.startsWith("--notes="): notes = a[8..^1]
+      elif a == "--findings" and i + 1 < args.len:
+        findingsFile = args[i+1]; inc i
+      elif a.startsWith("--findings="): findingsFile = a[11..^1]
+      elif a == "--json": jsonOut = true
+      elif not a.startsWith("-") and strandDir.len == 0:
+        strandDir = a
+      inc i
+    let (res, code) = doStrandAudit(subaction, strandDir, auditor, reason, findingsFile, notes)
+    if jsonOut:
+      echo pretty(res)
+    else:
+      if code == 0:
+        if subaction in ["approve", "ratify"]:
+          echo "[RATIFIED] Key 3 Pre-Weave Adversarial Audit Passed!"
+          echo "  Task ID    : " & res{"task_id"}.getStr("")
+          echo "  Author     : " & res{"author"}.getStr("")
+          echo "  Auditor    : " & res{"auditor"}.getStr("")
+          echo "  Audit Token: " & res{"audit_token"}.getStr("")
+        elif subaction == "reject":
+          echo "[REJECTED] Strand rejected during Key 3 Adversarial Audit!"
+          echo "  Task ID    : " & res{"task_id"}.getStr("")
+          echo "  Auditor    : " & res{"auditor"}.getStr("")
+          echo "  Reason     : " & res{"rejection_reason"}.getStr("")
+        else: # status
+          echo "Strand Audit Status:"
+          echo "  Task ID     : " & res{"task_id"}.getStr("")
+          echo "  Status      : " & res{"status"}.getStr("")
+          echo "  Lifecycle   : " & res{"lifecycle_state"}.getStr("")
+          echo "  Author      : " & res{"author"}.getStr("")
+          echo "  Auditor     : " & res{"auditor"}.getStr("")
+          echo "  Audit Token : " & res{"audit_token"}.getStr("")
+          if res.hasKey("rejection_reason"):
+            echo "  Rejection   : " & res{"rejection_reason"}.getStr("")
+      else:
+        if res.hasKey("error"):
+          stderr.writeLine("[ERROR] " & res["error"].getStr())
+        else:
+          stderr.writeLine(pretty(res))
     quit(code)
 
   of "sync", "rebase":
@@ -259,6 +408,7 @@ proc main() =
     var force = false
     var allowNoTests = false
     var allowNoChangelog = false
+    var allowUnaudited = false
     var i = 1
     while i < args.len:
       let a = args[i]
@@ -271,12 +421,16 @@ proc main() =
       elif a == "--force": force = true
       elif a == "--allow-no-tests": allowNoTests = true
       elif a == "--allow-no-changelog": allowNoChangelog = true
+      elif a in ["--allow-unaudited", "-u"]: allowUnaudited = true
       elif not a.startsWith("-") and branch.len == 0:
         branch = a
       inc i
-    let (res, code) = doBraidWeave(branch, baseRef, strandDir, force, allowNoTests, allowNoChangelog)
+    let (res, code) = doBraidWeave(branch, baseRef, strandDir, force, allowNoTests, allowNoChangelog, allowUnaudited)
     if code != 0:
-      stderr.writeLine(pretty(res))
+      if res.hasKey("message"):
+        stderr.writeLine("[REJECTED] " & res["message"].getStr())
+      else:
+        stderr.writeLine(pretty(res))
       quit(code)
     echo pretty(res)
 

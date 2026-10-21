@@ -497,7 +497,8 @@ proc doStrandStatus*(strandDirOrId: string = ""): tuple[status: JsonNode, exitCo
     for line in stOut.splitLines():
       if line.len >= 3:
         let filePath = line[3..^1].strip()
-        if filePath in [".vine.json", ".envrc", ".venv", ".git", ".vine"] or filePath.startsWith(".vine.") or filePath.startsWith(".vine/"):
+        let topDir = if filePath.contains('/'): filePath.split('/')[0] else: filePath
+        if filePath in [".vine.json", ".envrc", ".venv", ".git", ".vine"] or filePath.startsWith(".vine.") or filePath.startsWith(".vine/") or topDir in ["deps", "nimbledeps", "vendor", "node_modules", ".zig-cache", ".venv"]:
           continue
         dirtyFiles.add(%line.strip())
 
@@ -512,6 +513,18 @@ proc doStrandStatus*(strandDirOrId: string = ""): tuple[status: JsonNode, exitCo
     lifecycleState = "CONFLICTED"
   elif storedStatus == "GATE_FAILED":
     lifecycleState = "GATE_FAILED"
+  elif storedStatus == "AUDIT_REJECTED":
+    lifecycleState = "AUDIT_REJECTED"
+  elif storedStatus == "READY_FOR_AUDIT":
+    if dirtyFiles.len > 0:
+      lifecycleState = "IN_PROGRESS"
+    else:
+      lifecycleState = "READY_FOR_AUDIT"
+  elif storedStatus in ["AUDIT_RATIFIED"]:
+    if dirtyFiles.len > 0:
+      lifecycleState = "IN_PROGRESS"
+    else:
+      lifecycleState = "AUDIT_RATIFIED"
   elif storedStatus in ["READY_FOR_WEAVE", "GATE_PASSED"]:
     if dirtyFiles.len > 0:
       lifecycleState = "IN_PROGRESS"
@@ -539,6 +552,12 @@ proc doStrandStatus*(strandDirOrId: string = ""): tuple[status: JsonNode, exitCo
   res["dirty_count"] = %(dirtyFiles.len)
   res["dirty_files"] = dirtyFiles
   res["tool"] = %tool
+  if manifest != nil:
+    if manifest.hasKey("author"): res["author"] = manifest["author"]
+    elif manifest.hasKey("worker_name"): res["author"] = manifest["worker_name"]
+    if manifest.hasKey("auditor"): res["auditor"] = manifest["auditor"]
+    if manifest.hasKey("audit_token"): res["audit_token"] = manifest["audit_token"]
+    if manifest.hasKey("rejection_reason"): res["rejection_reason"] = manifest["rejection_reason"]
 
   return (res, 0)
 
