@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.13] - 2026-10-22
+
 ### Added
 - **Three-Key Integration Gate & Key 3 Adversarial Audit (`src/gate.nim`, `src/vine.nim`, `src/weave.nim`)**:
   - Upgraded Vine integration gate to the Three-Key Gate: Key 1 (mechanical merge-tree), Key 2 (semantic compiler/tests + changelog), and Key 3 (independent adversarial audit ratification).
