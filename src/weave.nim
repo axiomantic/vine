@@ -31,7 +31,8 @@ proc doBraidWeave*(
       manifestPath = strandDir / ".vine.json"
 
   # Step 1: Run Gate check if not already verified green
-  if not force:
+  let isAlreadyRatified = manifest != nil and (manifest.getOrDefault("status").getStr("") == "AUDIT_RATIFIED" or manifest.getOrDefault("lifecycle_state").getStr("") == "AUDIT_RATIFIED")
+  if not force and not isAlreadyRatified:
     let effectiveBase = if baseRefParam.len > 0: baseRefParam
                         elif manifest != nil and manifest.hasKey("base_branch"): manifest["base_branch"].getStr()
                         else: "main"
