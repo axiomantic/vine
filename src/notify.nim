@@ -63,9 +63,10 @@ proc isOrchestratorActive*(orchestrator: string): bool =
 
 proc sendRhizoDirect*(target: string, subject: string, bodyJson: string, project: string = "", sender: string = ""): bool =
   if not isRhizoAvailable() or target.len == 0: return false
-  if sender.len > 0:
-    putEnv("RHIZO_AGENT_NAME", sender)
-  var cmd = "rhizo "
+  let effSender = if sender.len > 0: sender
+                  elif getEnv("RHIZO_AGENT_NAME").len > 0: getEnv("RHIZO_AGENT_NAME")
+                  else: "system:vine"
+  var cmd = "RHIZO_AGENT_NAME=" & quoteShell(effSender) & " rhizo "
   if project.len > 0:
     cmd &= "--project " & quoteShell(project) & " "
   cmd &= "send --to " & quoteShell(target) & " --subject " & quoteShell(subject) & " --body " & quoteShell(bodyJson) & " --skip-gate"
@@ -75,9 +76,10 @@ proc sendRhizoDirect*(target: string, subject: string, bodyJson: string, project
 proc sendRhizoMulticast*(project: string, subject: string, bodyJson: string, sender: string = ""): bool =
   if not isRhizoAvailable(): return false
   let targetTag = if project.len > 0: project else: "vine"
-  if sender.len > 0:
-    putEnv("RHIZO_AGENT_NAME", sender)
-  var cmd = "rhizo "
+  let effSender = if sender.len > 0: sender
+                  elif getEnv("RHIZO_AGENT_NAME").len > 0: getEnv("RHIZO_AGENT_NAME")
+                  else: "system:vine"
+  var cmd = "RHIZO_AGENT_NAME=" & quoteShell(effSender) & " rhizo "
   if project.len > 0:
     cmd &= "--project " & quoteShell(project) & " "
   cmd &= "broadcast --tags " & quoteShell(targetTag) & " --subject " & quoteShell(subject) & " --body " & quoteShell(bodyJson)
