@@ -61,8 +61,10 @@ proc isOrchestratorActive*(orchestrator: string): bool =
 
   return false
 
-proc sendRhizoDirect*(target: string, subject: string, bodyJson: string, project: string = ""): bool =
+proc sendRhizoDirect*(target: string, subject: string, bodyJson: string, project: string = "", sender: string = ""): bool =
   if not isRhizoAvailable() or target.len == 0: return false
+  if sender.len > 0:
+    putEnv("RHIZO_AGENT_NAME", sender)
   var cmd = "rhizo "
   if project.len > 0:
     cmd &= "--project " & quoteShell(project) & " "
@@ -70,9 +72,11 @@ proc sendRhizoDirect*(target: string, subject: string, bodyJson: string, project
   let (_, code) = execCmdEx(cmd)
   return code == 0
 
-proc sendRhizoMulticast*(project: string, subject: string, bodyJson: string): bool =
+proc sendRhizoMulticast*(project: string, subject: string, bodyJson: string, sender: string = ""): bool =
   if not isRhizoAvailable(): return false
   let targetTag = if project.len > 0: project else: "vine"
+  if sender.len > 0:
+    putEnv("RHIZO_AGENT_NAME", sender)
   var cmd = "rhizo "
   if project.len > 0:
     cmd &= "--project " & quoteShell(project) & " "
@@ -200,6 +204,11 @@ proc notifyStrandEvent*(
       subject = "STRAND_EVENT: " & taskId & " (" & event & ")"
       payload["status"] = %(if manifest != nil and manifest.hasKey("status"): manifest["status"].getStr("") else: event)
 
+    let sender = if author.len > 0: author
+                 elif auditor.len > 0: auditor
+                 elif getEnv("RHIZO_AGENT_NAME").len > 0: getEnv("RHIZO_AGENT_NAME")
+                 else: "system:vine"
+
     let bodyJson = $payload
     var primaryRouted = false
     var primaryMode = ""
@@ -207,11 +216,11 @@ proc notifyStrandEvent*(
 
     # Primary routing: Orchestrator Awareness with Multicast Fallback
     if orchestrator.len > 0 and isOrchestratorActive(orchestrator):
-      primaryRouted = sendRhizoDirect(orchestrator, subject, bodyJson, project)
+      primaryRouted = sendRhizoDirect(orchestrator, subject, bodyJson, project, sender)
       primaryMode = "orchestrator_direct"
       primaryTarget = orchestrator
     else:
-      primaryRouted = sendRhizoMulticast(project, subject, bodyJson)
+      primaryRouted = sendRhizoMulticast(project, subject, bodyJson, sender)
       primaryMode = "multicast_fallback"
       primaryTarget = "@" & project
 
@@ -225,15 +234,16 @@ proc notifyStrandEvent*(
     case event
     of "AUDIT_RATIFIED", "AUDIT_REJECTED":
       if author.len > 0 and author.toLowerAscii != auditor.toLowerAscii and author.toLowerAscii != orchestrator.toLowerAscii:
-        if sendRhizoDirect(author, subject, bodyJson, project):
+        let auditSender = if auditor.len > 0: auditor else: sender
+        if sendRhizoDirect(author, subject, bodyJson, project, auditSender):
           secondaries.add(author)
 
     of "STRAND_WOVEN":
       if author.len > 0 and author.toLowerAscii != orchestrator.toLowerAscii:
-        if sendRhizoDirect(author, subject, bodyJson, project):
+        if sendRhizoDirect(author, subject, bodyJson, project, sender):
           secondaries.add(author)
       if auditor.len > 0 and auditor.toLowerAscii != author.toLowerAscii and auditor.toLowerAscii != orchestrator.toLowerAscii:
-        if sendRhizoDirect(auditor, subject, bodyJson, project):
+        if sendRhizoDirect(auditor, subject, bodyJson, project, sender):
           secondaries.add(auditor)
 
     res["secondary_targets"] = %secondaries
