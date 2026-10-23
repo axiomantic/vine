@@ -2,7 +2,7 @@
 # The Two-Key Integration Gate for Braid (Zero Green Mirage).
 
 import std/[os, osproc, strutils, json, times]
-import config, strand, crypto, process
+import config, strand, crypto, process, notify
 
 const
   ExitGateSuccess* = 0
@@ -746,7 +746,8 @@ proc doStrandSubmit*(
   allowTestOnly: bool = false,
   allowNoChangelog: bool = false,
   timeoutSec: float = 0.0,
-  allowDefeatDevices: bool = false
+  allowDefeatDevices: bool = false,
+  noNotify: bool = false
 ): tuple[output: JsonNode, exitCode: int] =
   var strandDir = if strandDirParam.len > 0: strandDirParam.normalizedPath else: getCurrentDir()
   var manifestPath = strandDir / ".vine.json"
@@ -795,6 +796,10 @@ proc doStrandSubmit*(
   if gateCode != 0:
     return (gateRes, gateCode)
 
+  if fileExists(manifestPath):
+    try: manifest = parseJson(readFile(manifestPath))
+    except CatchableError: discard
+
   var res = newJObject()
   res["status"] = %"ready_for_audit"
   res["task_id"] = if manifest != nil and manifest.hasKey("task_id"): manifest["task_id"] else: %strandDir.splitPath.tail
@@ -803,6 +808,11 @@ proc doStrandSubmit*(
   res["merge_tree_sha"] = gateRes.getOrDefault("merge_tree_sha")
   res["gate_token"] = gateRes.getOrDefault("gate_token")
   res["message"] = %"Strand passed Keys 1 & 2 and is submitted for independent Key 3 Adversarial Audit."
+
+  let notifyRes = notifyStrandEvent(manifest, "STRAND_SUBMITTED", res, noNotify)
+  if notifyRes != nil:
+    res["notification"] = notifyRes
+
   return (res, 0)
 
 proc doStrandAudit*(
@@ -811,7 +821,8 @@ proc doStrandAudit*(
   auditorParam: string = "",
   reasonParam: string = "",
   findingsFileParam: string = "",
-  notesParam: string = ""
+  notesParam: string = "",
+  noNotify: bool = false
 ): tuple[output: JsonNode, exitCode: int] =
   var strandDir = if strandDirParam.len > 0: strandDirParam.normalizedPath else: getCurrentDir()
   var manifestPath = strandDir / ".vine.json"
@@ -891,6 +902,9 @@ proc doStrandAudit*(
     if findings.len > 0:
       res["findings"] = %findings
     res["message"] = %"Strand rejected by Adversarial Auditor. Worker must address findings and re-submit."
+    let notifyRes = notifyStrandEvent(manifest, "AUDIT_REJECTED", res, noNotify)
+    if notifyRes != nil:
+      res["notification"] = notifyRes
     return (res, 0)
 
   of "approve", "ratify":
@@ -990,6 +1004,9 @@ proc doStrandAudit*(
     res["merge_tree_sha"] = %effectiveTreeSha
     res["gate_token"] = %gateToken
     res["message"] = %"Key 3 Pre-Weave Adversarial Audit ratified. Strand is cleared for trunk weaving."
+    let notifyRes = notifyStrandEvent(manifest, "AUDIT_RATIFIED", res, noNotify)
+    if notifyRes != nil:
+      res["notification"] = notifyRes
     return (res, 0)
   else:
     var errObj = newJObject()

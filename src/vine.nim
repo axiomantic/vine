@@ -15,10 +15,10 @@ proc printHelp() =
   echo "  vine status [task_id|path] [--dir <path>] [--json]"
   echo "  vine collisions [--repo <path>] [--json]"
   echo "  vine gate [branch] [--base <ref>] [--dir <path>] [--submit] [--author <name>] [--timeout <sec>] [--skip-tests] [--allow-no-tests] [--allow-test-only] [--allow-no-changelog] [--allow-defeat-devices] [--ensure-unreleased] [--test-command <cmd>] [--json] [-- <command...>]"
-  echo "  vine submit [task_id|path] [--dir <path>] [--author <name>] [--timeout <sec>] [--allow-no-tests] [--allow-test-only] [--allow-no-changelog] [--allow-defeat-devices] [--test-command <cmd>] [--json]"
-  echo "  vine audit <approve|reject|status> [task_id|path] [--auditor <name>] [--reason <text>] [--notes <text>] [--findings <file>] [--dir <path>] [--json]"
+  echo "  vine submit [task_id|path] [--dir <path>] [--author <name>] [--timeout <sec>] [--allow-no-tests] [--allow-test-only] [--allow-no-changelog] [--allow-defeat-devices] [--test-command <cmd>] [--no-notify] [--json]"
+  echo "  vine audit <approve|reject|status> [task_id|path] [--auditor <name>] [--reason <text>] [--notes <text>] [--findings <file>] [--dir <path>] [--no-notify] [--json]"
   echo "  vine sync [--dir <path>] [--base <ref>] [--rebase]"
-  echo "  vine weave [branch] [--base <ref>] [--dir <path>] [--force] [--allow-no-tests] [--allow-no-changelog] [--allow-unaudited]"
+  echo "  vine weave [branch] [--base <ref>] [--dir <path>] [--force] [--allow-no-tests] [--allow-no-changelog] [--allow-unaudited] [--no-notify]"
   echo "  vine changelog [entry] [--dir <path>] [--section <sec>] [--ensure-unreleased] [--check]"
   echo "  vine prune [--repo <path>] [--max-age <hours>] [--apply]"
   echo "  vine update [--check] [--apply] [--skip <pkg@ver>] [--disable] [--enable] [--json]"
@@ -259,6 +259,7 @@ proc main() =
     var allowTestOnly = false
     var allowNoChangelog = false
     var allowDefeatDevices = false
+    var noNotify = false
     var timeoutSec = 0.0
     var testCmd = ""
     var jsonOut = false
@@ -285,11 +286,12 @@ proc main() =
       elif a == "--allow-test-only": allowTestOnly = true
       elif a == "--allow-no-changelog": allowNoChangelog = true
       elif a == "--allow-defeat-devices": allowDefeatDevices = true
+      elif a == "--no-notify": noNotify = true
       elif a == "--json": jsonOut = true
       elif not a.startsWith("-") and strandDir.len == 0:
         strandDir = a
       inc i
-    let (res, code) = doStrandSubmit(strandDir, author, testCmd, allowNoTests, allowTestOnly, allowNoChangelog, timeoutSec, allowDefeatDevices)
+    let (res, code) = doStrandSubmit(strandDir, author, testCmd, allowNoTests, allowTestOnly, allowNoChangelog, timeoutSec, allowDefeatDevices, noNotify)
     if jsonOut:
       echo pretty(res)
     else:
@@ -299,6 +301,9 @@ proc main() =
         echo "  Author    : " & res{"author"}.getStr("")
         echo "  Gate Token: " & res{"gate_token"}.getStr("")
         echo "  Path      : " & res{"strand_path"}.getStr("")
+        if res.hasKey("notification") and res["notification"].hasKey("primary_mode"):
+          let nm = res["notification"]
+          echo "  Notified  : " & nm{"primary_mode"}.getStr("") & " (" & nm{"primary_target"}.getStr("") & ")"
       else:
         if res.hasKey("compiler_output"):
           stderr.writeLine("[FAILURE] Gate tests failed during submission:\n" & res{"compiler_output"}.getStr())
@@ -322,6 +327,7 @@ proc main() =
     var reason = ""
     var notes = ""
     var findingsFile = ""
+    var noNotify = false
     var jsonOut = false
     var i = 2
     while i < args.len:
@@ -341,11 +347,12 @@ proc main() =
       elif a == "--findings" and i + 1 < args.len:
         findingsFile = args[i+1]; inc i
       elif a.startsWith("--findings="): findingsFile = a[11..^1]
+      elif a == "--no-notify": noNotify = true
       elif a == "--json": jsonOut = true
       elif not a.startsWith("-") and strandDir.len == 0:
         strandDir = a
       inc i
-    let (res, code) = doStrandAudit(subaction, strandDir, auditor, reason, findingsFile, notes)
+    let (res, code) = doStrandAudit(subaction, strandDir, auditor, reason, findingsFile, notes, noNotify)
     if jsonOut:
       echo pretty(res)
     else:
@@ -356,11 +363,17 @@ proc main() =
           echo "  Author     : " & res{"author"}.getStr("")
           echo "  Auditor    : " & res{"auditor"}.getStr("")
           echo "  Audit Token: " & res{"audit_token"}.getStr("")
+          if res.hasKey("notification") and res["notification"].hasKey("primary_mode"):
+            let nm = res["notification"]
+            echo "  Notified   : " & nm{"primary_mode"}.getStr("") & " (" & nm{"primary_target"}.getStr("") & ")"
         elif subaction == "reject":
           echo "[REJECTED] Strand rejected during Key 3 Adversarial Audit!"
           echo "  Task ID    : " & res{"task_id"}.getStr("")
           echo "  Auditor    : " & res{"auditor"}.getStr("")
           echo "  Reason     : " & res{"rejection_reason"}.getStr("")
+          if res.hasKey("notification") and res["notification"].hasKey("primary_mode"):
+            let nm = res["notification"]
+            echo "  Notified   : " & nm{"primary_mode"}.getStr("") & " (" & nm{"primary_target"}.getStr("") & ")"
         else: # status
           echo "Strand Audit Status:"
           echo "  Task ID     : " & res{"task_id"}.getStr("")
@@ -409,6 +422,7 @@ proc main() =
     var allowNoTests = false
     var allowNoChangelog = false
     var allowUnaudited = false
+    var noNotify = false
     var i = 1
     while i < args.len:
       let a = args[i]
@@ -422,10 +436,11 @@ proc main() =
       elif a == "--allow-no-tests": allowNoTests = true
       elif a == "--allow-no-changelog": allowNoChangelog = true
       elif a in ["--allow-unaudited", "-u"]: allowUnaudited = true
+      elif a == "--no-notify": noNotify = true
       elif not a.startsWith("-") and branch.len == 0:
         branch = a
       inc i
-    let (res, code) = doBraidWeave(branch, baseRef, strandDir, force, allowNoTests, allowNoChangelog, allowUnaudited)
+    let (res, code) = doBraidWeave(branch, baseRef, strandDir, force, allowNoTests, allowNoChangelog, allowUnaudited, noNotify)
     if code != 0:
       if res.hasKey("message"):
         stderr.writeLine("[REJECTED] " & res["message"].getStr())

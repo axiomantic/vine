@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Strand Lifecycle Notifications with Orchestrator Awareness & Multicast Fallback (`src/notify.nim`, `src/gate.nim`, `src/weave.nim`, `src/vine.nim`, `tests/test_notify.nim`)**:
+  - Implemented `src/notify.nim` provider module dispatching real-time notifications over Rhizo Redis bus during strand lifecycle milestones: `STRAND_SUBMITTED`, `AUDIT_RATIFIED`, `AUDIT_REJECTED`, and `STRAND_WOVEN`.
+  - Added dynamic orchestrator awareness (`isOrchestratorActive`): verifies orchestrator liveness via `rhizo who` before routing directly to the conductor.
+  - Added automatic swarm multicast fallback (`rhizo broadcast --tags <project>`) when an orchestrator is unset, inactive, or unreachable, ensuring peer-to-peer swarms maintain continuous situational awareness.
+  - Added secondary direct notifications to strand authors on audit approvals/rejections and to authors/auditors on trunk weave.
+  - Added `--no-notify` CLI flag and `VINE_NO_NOTIFY` environment variable for automated testing and quiet execution.
+  - Comprehensive unit and integration test suite in `tests/test_notify.nim`.
+
 ## [0.2.13] - 2026-10-22
 
 ### Added

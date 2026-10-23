@@ -120,7 +120,8 @@ suite "Vine Native Tripwire Git Passthrough Suite":
         branchParam = "strand/task-tw-sync",
         baseRefParam = "main",
         strandDirParam = strandPath,
-        allowNoTests = true
+        allowNoTests = true,
+        allowUnaudited = true
       )
       check wFailCode != 0
       check wFailRes["status"].getStr() == "fast_forward_failed"
@@ -139,7 +140,8 @@ suite "Vine Native Tripwire Git Passthrough Suite":
         branchParam = "strand/task-tw-sync",
         baseRefParam = "main",
         strandDirParam = strandPath,
-        allowNoTests = true
+        allowNoTests = true,
+        allowUnaudited = true
       )
       check wCode == 0
       check wRes["status"].getStr() == "woven"

@@ -6,6 +6,9 @@
   "bin": {
     "vine": "bin/run.js"
   },
+  "scripts": {
+    "test": "nimble test"
+  },
   "skills": "./skills",
   "files": [
     "bin/run.js",

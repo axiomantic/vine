@@ -3,7 +3,7 @@
 
 import std/[os, osproc, strutils, json, times]
 import gate, crypto
-import config, strand
+import config, strand, notify
 
 proc doBraidWeave*(
   branchParam: string = "",
@@ -12,7 +12,8 @@ proc doBraidWeave*(
   force: bool = false,
   allowNoTests: bool = false,
   allowNoChangelog: bool = false,
-  allowUnaudited: bool = false
+  allowUnaudited: bool = false,
+  noNotify: bool = false
 ): tuple[output: JsonNode, exitCode: int] =
   var strandDir = if strandDirParam.len > 0: strandDirParam.normalizedPath else: getCurrentDir()
   var manifestPath = strandDir / ".vine.json"
@@ -207,4 +208,9 @@ proc doBraidWeave*(
   res["branch"] = %branch
   res["base_branch"] = %baseBranch
   res["canonical_repo"] = %canonicalRepo
+
+  let notifyRes = notifyStrandEvent(manifest, "STRAND_WOVEN", res, noNotify)
+  if notifyRes != nil:
+    res["notification"] = notifyRes
+
   return (res, 0)
