@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.14] - 2026-10-24
+
 ### Added
 - **Dynamic Leader Discovery & Orchestrator Purge (`src/notify.nim`, `src/strand.nim`, `src/vine.nim`, `tests/test_notify.nim`)**:
   - Eliminated legacy hardcoded `<project>-orchestrator` fallbacks and purged `aliasOf` crutches across strand creation and notification routing.
