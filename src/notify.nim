@@ -11,29 +11,25 @@ proc isNotificationsDisabled*(noNotify: bool = false): bool =
   let envVal = getEnv("VINE_NO_NOTIFY", "").strip().toLowerAscii
   return envVal in ["1", "true", "yes", "on"]
 
-proc isOrchestratorActive*(orchestrator: string): bool =
-  if orchestrator.len == 0 or not isRhizoAvailable(): return false
+proc isAgentActive*(agentName: string): bool =
+  if agentName.len == 0 or not isRhizoAvailable(): return false
 
-  # First try exact codename query via rhizo who <orchestrator> --json
-  let (outp, code) = execCmdEx("rhizo who " & quoteShell(orchestrator) & " --json")
+  # First try exact codename query via rhizo who <agentName> --json
+  let (outp, code) = execCmdEx("rhizo who " & quoteShell(agentName) & " --json")
   if code == 0 and outp.strip().len > 0:
     try:
       let node = parseJson(outp)
       if node.kind == JArray and node.len > 0:
         for item in node:
           let ag = item.getOrDefault("agent").getStr("")
-          let aliasOf = item.getOrDefault("alias_of").getStr("")
-          if ag.toLowerAscii == orchestrator.toLowerAscii or
-             (aliasOf.len > 0 and aliasOf.toLowerAscii == orchestrator.toLowerAscii):
+          if ag.toLowerAscii == agentName.toLowerAscii:
             let status = item.getOrDefault("status").getStr("").toUpperAscii
             let listener = item.getOrDefault("listener").getStr("").toUpperAscii
             if status in ["ACTIVE", "BUSY"] or listener in ["LISTENING", "DETACHED"]:
               return true
       elif node.kind == JObject:
         let ag = node.getOrDefault("agent").getStr("")
-        let aliasOf = node.getOrDefault("alias_of").getStr("")
-        if ag.toLowerAscii == orchestrator.toLowerAscii or
-           (aliasOf.len > 0 and aliasOf.toLowerAscii == orchestrator.toLowerAscii):
+        if ag.toLowerAscii == agentName.toLowerAscii:
           let status = node.getOrDefault("status").getStr("").toUpperAscii
           let listener = node.getOrDefault("listener").getStr("").toUpperAscii
           if status in ["ACTIVE", "BUSY"] or listener in ["LISTENING", "DETACHED"]:
@@ -48,10 +44,8 @@ proc isOrchestratorActive*(orchestrator: string): bool =
       let roster = parseJson(allOut)
       if roster.kind == JArray:
         for entry in roster:
-          let agentName = entry.getOrDefault("agent").getStr("")
-          let aliasOf = entry.getOrDefault("alias_of").getStr("")
-          if agentName.toLowerAscii == orchestrator.toLowerAscii or
-             (aliasOf.len > 0 and aliasOf.toLowerAscii == orchestrator.toLowerAscii):
+          let agentNameFromRoster = entry.getOrDefault("agent").getStr("")
+          if agentNameFromRoster.toLowerAscii == agentName.toLowerAscii:
             let status = entry.getOrDefault("status").getStr("").toUpperAscii
             let listener = entry.getOrDefault("listener").getStr("").toUpperAscii
             if status in ["ACTIVE", "BUSY"] or listener in ["LISTENING", "DETACHED"]:
@@ -60,6 +54,23 @@ proc isOrchestratorActive*(orchestrator: string): bool =
       discard
 
   return false
+
+proc isOrchestratorActive*(orchestrator: string): bool =
+  isAgentActive(orchestrator)
+
+proc queryElectedLeader*(project: string): string =
+  if project.len == 0 or not isRhizoAvailable(): return ""
+  let role = "orchestrator:" & project
+  let cmd = "rhizo leader status " & quoteShell(role)
+  let (outp, code) = execCmdEx(cmd)
+  if code == 0 and outp.strip().len > 0:
+    try:
+      let node = parseJson(outp)
+      if node.kind == JObject and node.getOrDefault("status").getStr("") == "active":
+        return node.getOrDefault("leader").getStr("")
+    except CatchableError:
+      discard
+  return ""
 
 proc sendRhizoDirect*(target: string, subject: string, bodyJson: string, project: string = "", sender: string = ""): bool =
   if not isRhizoAvailable() or target.len == 0: return false
@@ -142,6 +153,10 @@ proc notifyStrandEvent*(
                        elif details != nil and details.hasKey("orchestrator"): details["orchestrator"].getStr("")
                        else: ""
 
+    var createdBy = if manifest != nil and manifest.hasKey("created_by"): manifest["created_by"].getStr("")
+                    elif details != nil and details.hasKey("created_by"): details["created_by"].getStr("")
+                    else: ""
+
     let gateToken = if manifest != nil and manifest.hasKey("gate_token"): manifest["gate_token"].getStr("")
                     elif details != nil and details.hasKey("gate_token"): details["gate_token"].getStr("")
                     else: ""
@@ -163,12 +178,14 @@ proc notifyStrandEvent*(
     if branch.len > 0: payload["branch"] = %branch
     if baseBranch.len > 0: payload["base_branch"] = %baseBranch
     if author.len > 0: payload["author"] = %author
+    if createdBy.len > 0: payload["created_by"] = %createdBy
 
     case event
     of "STRAND_SUBMITTED":
       subject = "STRAND_SUBMITTED: " & taskId & " (Keys 1 & 2 Passed)"
       payload["status"] = %"READY_FOR_AUDIT"
       if orchestrator.len > 0: payload["orchestrator"] = %orchestrator
+      if createdBy.len > 0: payload["created_by"] = %createdBy
       if gateToken.len > 0: payload["gate_token"] = %gateToken
       if mergeTreeSha.len > 0: payload["merge_tree_sha"] = %mergeTreeSha
 
@@ -216,15 +233,28 @@ proc notifyStrandEvent*(
     var primaryMode = ""
     var primaryTarget = ""
 
-    # Primary routing: Orchestrator Awareness with Multicast Fallback
-    if orchestrator.len > 0 and isOrchestratorActive(orchestrator):
-      primaryRouted = sendRhizoDirect(orchestrator, subject, bodyJson, project, sender)
+    # Primary routing: Dynamic Leader Discovery with Multicast Fallback
+    # Step 1 (Direct Origin): Check manifest['orchestrator'] or manifest['created_by']
+    var directOrigin = orchestrator
+    if directOrigin.len == 0:
+      directOrigin = createdBy
+
+    if directOrigin.len > 0 and isAgentActive(directOrigin):
+      primaryRouted = sendRhizoDirect(directOrigin, subject, bodyJson, project, sender)
       primaryMode = "orchestrator_direct"
-      primaryTarget = orchestrator
+      primaryTarget = directOrigin
     else:
-      primaryRouted = sendRhizoMulticast(project, subject, bodyJson, sender)
-      primaryMode = "multicast_fallback"
-      primaryTarget = "@" & project
+      # Step 2 (Elected Leader): Query rhizo leader status orchestrator:<project>
+      let electedLeader = queryElectedLeader(project)
+      if electedLeader.len > 0 and isAgentActive(electedLeader):
+        primaryRouted = sendRhizoDirect(electedLeader, subject, bodyJson, project, sender)
+        primaryMode = "elected_leader"
+        primaryTarget = electedLeader
+      else:
+        # Step 3 (Multicast Fallback): Multicast to @<project>
+        primaryRouted = sendRhizoMulticast(project, subject, bodyJson, sender)
+        primaryMode = "multicast_fallback"
+        primaryTarget = "@" & project
 
     res["dispatched"] = %primaryRouted
     res["primary_mode"] = %primaryMode
@@ -233,18 +263,22 @@ proc notifyStrandEvent*(
 
     # Secondary Direct Notifications
     var secondaries: seq[string] = @[]
+    let targetLower = primaryTarget.toLowerAscii
+    let orchLower = orchestrator.toLowerAscii
     case event
     of "AUDIT_RATIFIED", "AUDIT_REJECTED":
-      if author.len > 0 and author.toLowerAscii != auditor.toLowerAscii and author.toLowerAscii != orchestrator.toLowerAscii:
+      if author.len > 0 and author.toLowerAscii != auditor.toLowerAscii and
+         author.toLowerAscii != targetLower and author.toLowerAscii != orchLower:
         let auditSender = if auditor.len > 0: auditor else: sender
         if sendRhizoDirect(author, subject, bodyJson, project, auditSender):
           secondaries.add(author)
 
     of "STRAND_WOVEN":
-      if author.len > 0 and author.toLowerAscii != orchestrator.toLowerAscii:
+      if author.len > 0 and author.toLowerAscii != targetLower and author.toLowerAscii != orchLower:
         if sendRhizoDirect(author, subject, bodyJson, project, sender):
           secondaries.add(author)
-      if auditor.len > 0 and auditor.toLowerAscii != author.toLowerAscii and auditor.toLowerAscii != orchestrator.toLowerAscii:
+      if auditor.len > 0 and auditor.toLowerAscii != author.toLowerAscii and
+         auditor.toLowerAscii != targetLower and auditor.toLowerAscii != orchLower:
         if sendRhizoDirect(auditor, subject, bodyJson, project, sender):
           secondaries.add(auditor)
 

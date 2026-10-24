@@ -62,7 +62,8 @@ proc doStrandNew*(
   forceWorktree: bool = false,
   parentBranch: string = "",
   workerParam: string = "",
-  orchestratorParam: string = ""
+  orchestratorParam: string = "",
+  createdByParam: string = ""
 ): tuple[manifest: JsonNode, exitCode: int] =
   let repoDir = if repoDirParam.len > 0: repoDirParam.normalizedPath else: getRepoRoot()
   let projectName = repoDir.splitPath.tail
@@ -181,8 +182,14 @@ proc doStrandNew*(
   let effectiveWorker = if workerParam.len > 0: workerParam
                         else: getEnv("RHIZO_AGENT_NAME", "")
   let effectiveOrch = if orchestratorParam.len > 0: orchestratorParam
+                      elif createdByParam.len > 0: createdByParam
                       elif getEnv("GARDEN_ORCHESTRATOR", "").len > 0: getEnv("GARDEN_ORCHESTRATOR", "")
-                      else: projectName & "-orchestrator"
+                      elif getEnv("RHIZO_ORCHESTRATOR", "").len > 0: getEnv("RHIZO_ORCHESTRATOR", "")
+                      else: ""
+  let effectiveCreatedBy = if createdByParam.len > 0: createdByParam
+                           elif orchestratorParam.len > 0: orchestratorParam
+                           elif getEnv("RHIZO_AGENT_NAME", "").len > 0: getEnv("RHIZO_AGENT_NAME", "")
+                           else: effectiveOrch
 
   # Write .vine/strand.json identity attestation file
   try:
@@ -194,6 +201,7 @@ proc doStrandNew*(
       "branch": branch,
       "worker": effectiveWorker,
       "orchestrator": effectiveOrch,
+      "created_by": effectiveCreatedBy,
       "created_at": now().utc().format("yyyy-MM-dd'T'HH:mm:ss'Z'")
     }
     writeFile(strandDir / ".vine" / "strand.json", pretty(strandIdentity))
@@ -212,6 +220,7 @@ proc doStrandNew*(
     "intended_merge_base": intendedMergeBase,
     "worker": effectiveWorker,
     "orchestrator": effectiveOrch,
+    "created_by": effectiveCreatedBy,
     "status": "PROVISIONED",
     "lifecycle_state": "PROVISIONED",
     "created_at": now().utc().format("yyyy-MM-dd'T'HH:mm:ss'Z'"),
@@ -231,6 +240,7 @@ proc doStrandNew*(
   res["intended_merge_base"] = %intendedMergeBase
   res["worker"] = %effectiveWorker
   res["orchestrator"] = %effectiveOrch
+  res["created_by"] = %effectiveCreatedBy
   res["tool"] = %toolUsed
   return (res, 0)
 

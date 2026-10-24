@@ -42,19 +42,31 @@ proc main() =
   let cmd = args[0].toLowerAscii
   case cmd
   of "new", "create", "strand":
-    if args.len < 2:
-      stderr.writeLine("Usage: vine new <task_id> [--repo <path>] [--branch <name>] [--base <ref>] [--parent <ref>] [--rift] [--worktree]")
-      quit(1)
-    let taskId = args[1]
+    var taskId = ""
     var repoDir = ""
     var branch = ""
     var baseRef = "HEAD"
     var parentBranch = ""
     var workerName = ""
     var orchName = ""
+    var createdBy = ""
     var forceRift = false
     var forceWorktree = false
-    var i = 2
+    var i = 1
+
+    if cmd == "strand" and args.len >= 2 and args[1].toLowerAscii in ["new", "create"]:
+      if args.len < 3:
+        stderr.writeLine("Usage: vine strand new <task_id> [--repo <path>] [--branch <name>] [--base <ref>] [--parent <ref>] [--rift] [--worktree] [--orchestrator <name>] [--created-by <name>]")
+        quit(1)
+      taskId = args[2]
+      i = 3
+    else:
+      if args.len < 2:
+        stderr.writeLine("Usage: vine new <task_id> [--repo <path>] [--branch <name>] [--base <ref>] [--parent <ref>] [--rift] [--worktree] [--orchestrator <name>] [--created-by <name>]")
+        quit(1)
+      taskId = args[1]
+      i = 2
+
     while i < args.len:
       let a = args[i]
       if a == "--repo" and i + 1 < args.len:
@@ -75,10 +87,14 @@ proc main() =
       elif a == "--orchestrator" and i + 1 < args.len:
         orchName = args[i+1]; inc i
       elif a.startsWith("--orchestrator="): orchName = a[15..^1]
+      elif (a in ["--created-by", "--from"]) and i + 1 < args.len:
+        createdBy = args[i+1]; inc i
+      elif a.startsWith("--created-by="): createdBy = a[13..^1]
+      elif a.startsWith("--from="): createdBy = a[7..^1]
       elif a == "--rift": forceRift = true
       elif a == "--worktree": forceWorktree = true
       inc i
-    let (res, code) = doStrandNew(taskId, repoDir, branch, baseRef, forceRift, forceWorktree, parentBranch, workerName, orchName)
+    let (res, code) = doStrandNew(taskId, repoDir, branch, baseRef, forceRift, forceWorktree, parentBranch, workerName, orchName, createdBy)
     if code != 0:
       stderr.writeLine(pretty(res))
       quit(code)

@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Dynamic Leader Discovery & Orchestrator Purge (`src/notify.nim`, `src/strand.nim`, `src/vine.nim`, `tests/test_notify.nim`)**:
+  - Eliminated legacy hardcoded `<project>-orchestrator` fallbacks and purged `aliasOf` crutches across strand creation and notification routing.
+  - Implemented 3-step dynamic leader discovery hierarchy in `notifyStrandEvent`:
+    1. **Direct Origin**: Routes directly to `manifest["orchestrator"]` or `manifest["created_by"]` if present and active.
+    2. **Elected Leader**: Queries `rhizo leader status orchestrator:<project>` for active leader lease if direct origin is absent or inactive.
+    3. **Multicast Fallback**: Broadcasts to `@<project>` when both direct origin and elected leader are absent.
+  - Added support for `--orchestrator`, `--created-by`, and `--from` flags in `vine strand new` and `vine new`, recording both `orchestrator` and `created_by` in `.vine.json` and `.vine/strand.json`.
+  - Fixed CLI parsing in `src/vine.nim` for `vine strand new <task_id>` subcommand invocation.
+  - Added negative controls and dynamic leader discovery tests in `tests/test_notify.nim`.
 - **Strand Lifecycle Notifications with Orchestrator Awareness & Multicast Fallback (`src/notify.nim`, `src/gate.nim`, `src/weave.nim`, `src/vine.nim`, `tests/test_notify.nim`)**:
   - Implemented `src/notify.nim` provider module dispatching real-time notifications over Rhizo Redis bus during strand lifecycle milestones: `STRAND_SUBMITTED`, `AUDIT_RATIFIED`, `AUDIT_REJECTED`, and `STRAND_WOVEN`.
   - Added dynamic orchestrator awareness (`isOrchestratorActive`): verifies orchestrator liveness via `rhizo who` before routing directly to the conductor.
