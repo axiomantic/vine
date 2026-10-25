@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Atomic `vine submit --listen` & `vine submit --commit <msg>` (`src/vine.nim`, `src/gate.nim`, `src/notify.nim`)**:
+  - Added CLI flag `--listen` (`-l`) to `vine submit`, executing `rhizo listen <author>` in the foreground immediately after verifying Keys 1 & 2 (merge-tree, tests, changelog) and recording `READY_FOR_AUDIT` in Redis.
+  - Added CLI flag `--commit <msg>` to `vine submit`, automatically staging (`git add -A`) and committing dirty working tree changes before running Three-Key gate validation.
+  - Prevents the ceremony pause and race condition where workers would re-arm their listener prematurely before submitting or leave uncommitted changes unverified.
+  - Added `runRhizoListen` helper in `src/notify.nim` and integrated with project routing.
 - **Zero-Disk Redis Strands & Distributed Transport (`scripts/strand.lua`, `src/redis_client.nim`, `src/strand.nim`, `src/gate.nim`, `src/weave.nim`)**:
   - Implemented pure Redis strand state management using atomic Lua engine (`scripts/strand.lua`) and standalone high-performance RESP client (`src/redis_client.nim`).
   - Added reverse path compound indexing (`vine:strands:by_path`: `<machine_id>:<normalized_absolute_path>` -> `<task_id>` and `<normalized_absolute_path>` -> `<task_id>`), eliminating filesystem scanning and enabling O(1) strand resolution.

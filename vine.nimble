@@ -15,6 +15,7 @@ task test, "Run test suite":
   exec "nim r tests/test_gate_advanced.nim"
   exec "nim r tests/test_changelog_gate.nim"
   exec "nim r tests/test_notify.nim"
+  exec "nim r tests/test_submit_atomic.nim"
 
 after build:
   when defined(macosx) or defined(darwin):

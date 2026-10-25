@@ -1070,6 +1070,78 @@ def test_vine_defeat_device_gate_rejection():
                 subprocess.run(["git", "-C", repo_dir, "worktree", "prune"], capture_output=True)
                 shutil.rmtree(os.path.dirname(strand_path), ignore_errors=True)
 
+def test_vine_atomic_submit_commit():
+    """Verify vine submit --commit <msg> automatically stages and commits dirty working tree."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        repo_dir = os.path.join(temp_dir, "repo")
+        os.makedirs(repo_dir)
+        subprocess.run(["git", "init", "-b", "main", "-q", repo_dir], check=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.email", "agent@braid.mesh"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.name", "Braid Agent"], check=True)
+
+        # Base files in main
+        os.makedirs(os.path.join(repo_dir, "src"))
+        with open(os.path.join(repo_dir, "src", "app.py"), "w") as f:
+            f.write("# Base app\n")
+        subprocess.run(["git", "-C", repo_dir, "add", "src/app.py"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "commit", "-q", "-m", "Initial commit"], check=True)
+
+        task_id = "task-py-subcommit"
+        code, out, err = run_vine("new", task_id, "--repo", repo_dir, "--worktree")
+        assert code == 0, f"vine new failed: {err}"
+        strand_path = json.loads(out)["strand_path"]
+
+        try:
+            # Dirty worktree: provider and consumer modification
+            with open(os.path.join(strand_path, "src", "feature.py"), "w") as f:
+                f.write("def do_feature(): return 123\n")
+            with open(os.path.join(strand_path, "src", "app.py"), "w") as f:
+                f.write("from feature import do_feature\nprint(do_feature())\n")
+
+            # Check status is dirty
+            p = subprocess.run(["git", "-C", strand_path, "status", "--porcelain"], capture_output=True, text=True)
+            assert p.stdout.strip(), "Working tree should be dirty"
+
+            # Run vine submit with --commit
+            sub_code, sub_out, sub_err = run_vine(
+                "submit", "--dir", strand_path, "--author", "worker-claudia",
+                "--commit", "feat: atomic auto-commit from pytest",
+                "--allow-no-tests", "--json"
+            )
+            assert sub_code == 0, f"Submit failed: {sub_err}\nOut: {sub_out}"
+            sub_data = json.loads(sub_out)
+            assert sub_data["status"] == "ready_for_audit"
+            assert sub_data.get("auto_committed") is True
+            assert sub_data.get("commit")
+
+            # Verify working tree is now clean
+            p2 = subprocess.run(["git", "-C", strand_path, "status", "--porcelain"], capture_output=True, text=True)
+            assert p2.stdout.strip() == "", "Working tree should be clean after submit --commit"
+
+            # Verify commit message
+            p3 = subprocess.run(["git", "-C", strand_path, "log", "-1", "--pretty=%B"], capture_output=True, text=True)
+            assert "feat: atomic auto-commit from pytest" in p3.stdout
+
+            # Submitting again when clean does not create empty commit
+            head_sha = sub_data["commit"]
+            sub2_code, sub2_out, sub2_err = run_vine(
+                "submit", "--dir", strand_path, "--author", "worker-claudia",
+                "--commit", "feat: should not commit",
+                "--allow-no-tests", "--json"
+            )
+            assert sub2_code == 0
+            sub2_data = json.loads(sub2_out)
+            assert "auto_committed" not in sub2_data
+            p4 = subprocess.run(["git", "-C", strand_path, "rev-parse", "--short", "HEAD"], capture_output=True, text=True)
+            assert p4.stdout.strip() == head_sha
+
+        finally:
+            if os.path.exists(strand_path):
+                subprocess.run(["git", "-C", repo_dir, "worktree", "remove", "--force", strand_path], capture_output=True)
+                subprocess.run(["git", "-C", repo_dir, "worktree", "prune"], capture_output=True)
+                shutil.rmtree(os.path.dirname(strand_path), ignore_errors=True)
+
+
 if __name__ == "__main__":
     import inspect
     import traceback

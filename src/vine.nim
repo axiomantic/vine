@@ -2,7 +2,7 @@
 # Vine — Sub-Second Rift Workspaces & Zero-Mirage Git Weaving Engine.
 
 import std/[os, strutils, json, sequtils]
-import strand, gate, weave, guide, config, update
+import strand, gate, weave, guide, config, update, notify
 
 const Version = "0.2.14"
 
@@ -15,7 +15,7 @@ proc printHelp() =
   echo "  vine status [task_id|path] [--dir <path>] [--json]"
   echo "  vine collisions [--repo <path>] [--json]"
   echo "  vine gate [branch] [--base <ref>] [--dir <path>] [--submit] [--author <name>] [--timeout <sec>] [--skip-tests] [--allow-no-tests] [--allow-test-only] [--allow-no-changelog] [--allow-defeat-devices] [--ensure-unreleased] [--test-command <cmd>] [--json] [-- <command...>]"
-  echo "  vine submit [task_id|path] [--dir <path>] [--author <name>] [--timeout <sec>] [--allow-no-tests] [--allow-test-only] [--allow-no-changelog] [--allow-defeat-devices] [--test-command <cmd>] [--no-notify] [--json]"
+  echo "  vine submit [task_id|path] [--dir <path>] [--author <name>] [--commit <msg>] [--listen] [--timeout <sec>] [--allow-no-tests] [--allow-test-only] [--allow-no-changelog] [--allow-defeat-devices] [--test-command <cmd>] [--no-notify] [--json]"
   echo "  vine audit <approve|reject|status> [task_id|path] [--auditor <name>] [--reason <text>] [--notes <text>] [--findings <file>] [--dir <path>] [--no-notify] [--json]"
   echo "  vine sync [--dir <path>] [--base <ref>] [--rebase]"
   echo "  vine weave [branch] [--base <ref>] [--dir <path>] [--force] [--allow-no-tests] [--allow-no-changelog] [--allow-unaudited] [--no-notify]"
@@ -271,6 +271,8 @@ proc main() =
   of "submit":
     var strandDir = ""
     var author = ""
+    var commitMsg = ""
+    var listen = false
     var allowNoTests = false
     var allowTestOnly = false
     var allowNoChangelog = false
@@ -288,6 +290,10 @@ proc main() =
       elif a == "--author" and i + 1 < args.len:
         author = args[i+1]; inc i
       elif a.startsWith("--author="): author = a[9..^1]
+      elif a == "--commit" and i + 1 < args.len:
+        commitMsg = args[i+1]; inc i
+      elif a.startsWith("--commit="): commitMsg = a[9..^1]
+      elif a == "--listen" or a == "-l": listen = true
       elif a == "--test-command" and i + 1 < args.len:
         testCmd = args[i+1]; inc i
       elif a.startsWith("--test-command="): testCmd = a[15..^1]
@@ -307,7 +313,19 @@ proc main() =
       elif not a.startsWith("-") and strandDir.len == 0:
         strandDir = a
       inc i
-    let (res, code) = doStrandSubmit(strandDir, author, testCmd, allowNoTests, allowTestOnly, allowNoChangelog, timeoutSec, allowDefeatDevices, noNotify)
+    let (res, code) = doStrandSubmit(
+      strandDirParam = strandDir,
+      authorParam = author,
+      testCmdParam = testCmd,
+      allowNoTests = allowNoTests,
+      allowTestOnly = allowTestOnly,
+      allowNoChangelog = allowNoChangelog,
+      timeoutSec = timeoutSec,
+      allowDefeatDevices = allowDefeatDevices,
+      noNotify = noNotify,
+      commitMsg = commitMsg,
+      listen = false
+    )
     if jsonOut:
       echo pretty(res)
     else:
@@ -317,6 +335,8 @@ proc main() =
         echo "  Author    : " & res{"author"}.getStr("")
         echo "  Gate Token: " & res{"gate_token"}.getStr("")
         echo "  Path      : " & res{"strand_path"}.getStr("")
+        if res.hasKey("commit"):
+          echo "  Committed : " & res{"commit"}.getStr("")
         if res.hasKey("notification") and res["notification"].hasKey("primary_mode"):
           let nm = res["notification"]
           echo "  Notified  : " & nm{"primary_mode"}.getStr("") & " (" & nm{"primary_target"}.getStr("") & ")"
@@ -329,9 +349,20 @@ proc main() =
           stderr.writeLine("[VIOLATION] " & res{"changelog_error"}.getStr())
         elif res.hasKey("two_point_diff_error"):
           stderr.writeLine("[VIOLATION] " & res{"two_point_diff_error"}.getStr())
+        elif res.hasKey("error"):
+          stderr.writeLine("[ERROR] " & res{"error"}.getStr())
         else:
           stderr.writeLine(pretty(res))
-    quit(code)
+    if code != 0:
+      quit(code)
+
+    if listen:
+      let effAuthor = res{"author"}.getStr(author)
+      let project = res{"project"}.getStr("vine")
+      let listenCode = runRhizoListen(effAuthor, project)
+      quit(listenCode)
+
+    quit(0)
 
   of "audit":
     if args.len < 2:

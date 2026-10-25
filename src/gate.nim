@@ -3,6 +3,7 @@
 
 import std/[os, osproc, strutils, json, times]
 import config, strand, crypto, process, notify, redis_client
+export notify
 
 const
   ExitGateSuccess* = 0
@@ -692,6 +693,18 @@ proc getMergeTreeSha*(strandDir: string, baseRef: string, branch: string = "HEAD
     return mtOut.strip().splitLines()[0]
   return ""
 
+proc gitAutoCommitIfDirty*(dir: string, msg: string): tuple[committed: bool, sha: string, error: string] =
+  let (statusOut, statusCode, _, _) = execCmdExWithTimeout("git -C " & quoteShell(dir) & " status --porcelain", 15.0)
+  if statusCode == 0 and statusOut.strip().len > 0:
+    let cmd = "git -C " & quoteShell(dir) & " add -A && git -C " & quoteShell(dir) & " commit -m " & quoteShell(msg) & " && git -C " & quoteShell(dir) & " rev-parse --short HEAD"
+    let (outp, code, _, _) = execCmdExWithTimeout(cmd, 30.0)
+    if code != 0:
+      return (false, "", outp)
+    let lines = outp.strip().splitLines()
+    let sha = if lines.len > 0: lines[^1].strip() else: ""
+    return (true, sha, "")
+  return (false, "", "")
+
 proc doStrandSubmit*(
   strandDirParam: string = "",
   authorParam: string = "",
@@ -701,12 +714,28 @@ proc doStrandSubmit*(
   allowNoChangelog: bool = false,
   timeoutSec: float = 0.0,
   allowDefeatDevices: bool = false,
-  noNotify: bool = false
+  noNotify: bool = false,
+  commitMsg: string = "",
+  listen: bool = false
 ): tuple[output: JsonNode, exitCode: int] =
   var strandDir = if strandDirParam.len > 0: strandDirParam.normalizedPath else: getCurrentDir()
   var manifest = findStrandManifest(if strandDirParam.len > 0: strandDirParam else: strandDir)
   if manifest != nil and manifest.hasKey("strand_path") and dirExists(manifest["strand_path"].getStr):
     strandDir = manifest["strand_path"].getStr.normalizedPath
+
+  # Optional auto-commit if working directory is dirty before running gate validation
+  var autoCommitted = false
+  var autoCommitSha = ""
+  if commitMsg.len > 0:
+    let (committed, sha, err) = gitAutoCommitIfDirty(strandDir, commitMsg)
+    if err.len > 0:
+      var errRes = newJObject()
+      errRes["status"] = %"error"
+      errRes["error"] = %("Failed to auto-commit changes: " & err)
+      return (errRes, ExitGateFailure)
+    if committed:
+      autoCommitted = true
+      autoCommitSha = sha
 
   let effectiveBase = if manifest != nil and manifest.hasKey("base_branch"): manifest["base_branch"].getStr() else: "main"
   let effectiveBranch = if manifest != nil and manifest.hasKey("branch"): manifest["branch"].getStr() else: "HEAD"
@@ -746,18 +775,33 @@ proc doStrandSubmit*(
     if updated != nil and updated.kind == JObject:
       manifest = updated
 
+  let effProject = if manifest != nil and manifest.hasKey("project") and manifest["project"].getStr.len > 0:
+                     manifest["project"].getStr
+                   else:
+                     "vine"
+
   var res = newJObject()
   res["status"] = %"ready_for_audit"
   res["task_id"] = if manifest != nil and manifest.hasKey("task_id"): manifest["task_id"] else: %strandDir.splitPath.tail
   res["author"] = %effAuthor
+  res["project"] = %effProject
   res["strand_path"] = %strandDir
   res["merge_tree_sha"] = gateRes.getOrDefault("merge_tree_sha")
   res["gate_token"] = gateRes.getOrDefault("gate_token")
   res["message"] = %"Strand passed Keys 1 & 2 and is submitted for independent Key 3 Adversarial Audit."
+  if autoCommitted:
+    res["auto_committed"] = %true
+    if autoCommitSha.len > 0:
+      res["commit"] = %autoCommitSha
 
   let notifyRes = notifyStrandEvent(manifest, "STRAND_SUBMITTED", res, noNotify)
   if notifyRes != nil:
     res["notification"] = notifyRes
+
+  if listen:
+    let lCode = runRhizoListen(effAuthor, effProject)
+    res["listen_exit_code"] = %lCode
+    return (res, lCode)
 
   return (res, 0)
 

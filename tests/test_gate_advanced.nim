@@ -318,3 +318,4 @@ suite "Vine Advanced Two-Key Gate & Timeout Rail Suite":
       check manifest["lifecycle_state"].getStr() == "GATE_TIMEOUT"
       check manifest.hasKey("timed_out_command")
       check manifest.hasKey("timeout_elapsed_sec")
+

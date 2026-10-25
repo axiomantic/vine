@@ -122,7 +122,7 @@ vine prune --apply
 | `vine collisions` | `[--repo <dir>] [--json]` | Forecast file-footprint overlaps across concurrent worker strands. |
 | `vine sync` | `[--dir <path>] [--base <branch>]` | Fast-forward or merge upstream trunk changes cleanly into strand. |
 | `vine gate` | `[--dir <path>] [--base <branch>] [--submit] [--author <name>] [--skip-tests] [-- <command...>]` | Run Three-Key Gate: Key 1 mechanical pre-check and Key 2 semantic test suite (`-- <cmd...>` or `--test-command <cmd>`). |
-| `vine submit` | `[--dir <path>] [--author <name>] [--allow-no-tests]` | Run Keys 1 & 2 and submit strand for independent Key 3 Adversarial Audit. |
+| `vine submit` | `[--dir <path>] [--author <name>] [--commit <msg>] [--listen] [--allow-no-tests]` | Run Keys 1 & 2, auto-commit dirty changes, submit strand for Key 3 audit, and optionally enter foreground listener. |
 | `vine audit` | `<approve\|reject\|status> [--auditor <name>] [--reason <text>] [--notes <text>]` | Key 3 Adversarial Audit: reject defects, check status, or ratify approval with cryptographic audit token (worker self-audit is strictly blocked). |
 | `vine weave` | `[--dir <path>] [--base <branch>] [--force] [--allow-unaudited]` | Verify Three-Key Gate and fast-forward merge ratified strand into canonical trunk and prune. |
 | `vine prune` | `[--repo <dir>] [--apply]` | Remove inactive or completed strands (dry-run by default). |

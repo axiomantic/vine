@@ -288,3 +288,16 @@ proc notifyStrandEvent*(
   except CatchableError as e:
     res["error"] = %e.msg
     return res
+
+proc runRhizoListen*(author: string = "", project: string = ""): int =
+  if not isRhizoAvailable():
+    stderr.writeLine("[WARNING] rhizo CLI not found in PATH; cannot execute foreground listener")
+    return 1
+  var cmd = "rhizo "
+  if project.len > 0:
+    cmd &= "--project " & quoteShell(project) & " "
+  cmd &= "listen"
+  if author.len > 0:
+    cmd &= " " & quoteShell(author)
+  return execCmd(cmd)
+

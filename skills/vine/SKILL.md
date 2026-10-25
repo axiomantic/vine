@@ -237,7 +237,7 @@ stateDiagram-v2
 | `vine status [<task_id>] [--json]` | Inspects commits ahead/behind, metadata filtering, and lifecycle state. | `vine status --json` |
 | `vine collisions [--json]` | Forecasts file footprint overlaps across active strands before merge. | `vine collisions --json` |
 | `vine gate [--json] [-- <cmd...>]` | Evaluates Keys 1 & 2 (mechanical merge-tree, live test suite, and changelog). Supports `--allow-no-changelog`, `--ensure-unreleased`, and `-- <cmd...>`. | `vine gate --json -- nimble test` |
-| `vine submit [--author <name>]` | Worker command: evaluates Keys 1 & 2 and transitions strand to `READY_FOR_AUDIT`. Records author identity. | `vine submit --author implementer` |
+| `vine submit [--author <name>] [--commit <msg>] [--listen]` | Worker command: evaluates Keys 1 & 2, auto-commits dirty working tree if requested, transitions strand to `READY_FOR_AUDIT`, and optionally enters foreground listener. | `vine submit --author implementer --commit "feat: add capability" --listen` |
 | `vine audit status` | Queries current audit state, author, auditor, and rejection reasons. | `vine audit status --json` |
 | `vine audit approve --auditor <name>` | Independent Auditor command: evaluates Five Pillars, verifies Keys 1 & 2, ensures `auditor != author`, stamps cryptographic `audit_token`, and marks `AUDIT_RATIFIED`. | `vine audit approve --auditor auditor-1` |
 | `vine audit reject --reason <text>` | Independent Auditor command: marks strand `AUDIT_REJECTED` and records defects for worker remediation. | `vine audit reject --reason "Missing consumer wire"` |
