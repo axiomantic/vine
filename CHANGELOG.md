@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Zero-Disk Redis Strands & Distributed Transport (`scripts/strand.lua`, `src/redis_client.nim`, `src/strand.nim`, `src/gate.nim`, `src/weave.nim`)**:
+  - Implemented pure Redis strand state management using atomic Lua engine (`scripts/strand.lua`) and standalone high-performance RESP client (`src/redis_client.nim`).
+  - Added reverse path compound indexing (`vine:strands:by_path`: `<machine_id>:<normalized_absolute_path>` -> `<task_id>` and `<normalized_absolute_path>` -> `<task_id>`), eliminating filesystem scanning and enabling O(1) strand resolution.
+  - Implemented 5-tier cascading strand resolver in `findStrandManifest` (explicit arg/ID -> branch convention `strand/<id>` -> isolated git worktree config `vine.taskId` -> reverse path index -> search).
+  - Dual-mode strand transport: co-located strands (`strand.machine_id == local_machine_id`) execute local merge-tree and worktree pruning, while remote strands (`strand.machine_id != local_machine_id`) fetch branch commits from remote git origin (`git fetch origin <branch>:<branch>`) before evaluating the Three-Key gate and executing fast-forward weave.
+  - Ghost strand auto-pruning: automatically cleans up orphaned/stale Redis strand records when local workspace directories or canonical repositories are deleted externally.
+
+### Removed
+- **Eradication of On-Disk JSON Coordination Files**:
+  - Completely eliminated all file read and write callsites for `.vine.json`, `.vine/strand.json`, and metadata lockfiles across `src/strand.nim`, `src/gate.nim`, `src/weave.nim`, and CLI commands.
+  - Zero coordination JSON manifests are created, read, or staged in git workspaces.
+  - Inverted test assertions to mechanically verify the complete absence of on-disk coordination manifests.
+
 ## [0.2.14] - 2026-10-24
 
 ### Added

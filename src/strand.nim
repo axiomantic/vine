@@ -2,7 +2,7 @@
 # Strand (workspace) provisioning, listing, and lifecycle management for Braid.
 
 import std/[os, osproc, strutils, json, times, tables, sets, algorithm]
-import config
+import config, redis_client
 
 type
   StrandManifest* = object
@@ -52,6 +52,8 @@ proc isVenvRelocatable*(venvDir: string): bool =
     if s.startsWith("relocatable") and s.contains("true"):
       return true
   return false
+
+proc findStrandManifest*(query: string = "", repoDirParam: string = ""): JsonNode
 
 proc doStrandNew*(
   taskId: string,
@@ -174,7 +176,7 @@ proc doStrandNew*(
     except CatchableError:
       discard
 
-  # Initialize .vine.json Manifest
+  # Initialize Strand Metadata (Pure Redis - Zero On-Disk JSON)
   let (bcOut, bcCode) = execCmdEx("git -C " & quoteShell(repoDir) & " rev-parse " & quoteShell(baseBranch))
   let baseCommit = if bcCode == 0 and bcOut.strip().len > 0: bcOut.strip() else: getHeadCommit(repoDir)
   let (mbOut, mbCode) = execCmdEx("git -C " & quoteShell(repoDir) & " merge-base " & quoteShell(baseBranch) & " " & quoteShell(cfg.primaryBranch))
@@ -190,44 +192,44 @@ proc doStrandNew*(
                            elif orchestratorParam.len > 0: orchestratorParam
                            elif getEnv("RHIZO_AGENT_NAME", "").len > 0: getEnv("RHIZO_AGENT_NAME", "")
                            else: effectiveOrch
+  let machineId = getMachineId()
 
-  # Write .vine/strand.json identity attestation file
-  try:
-    createDir(strandDir / ".vine")
-    let strandIdentity = %*{
-      "task_id": taskId,
-      "project": projectName,
-      "strand_path": strandDir,
-      "branch": branch,
-      "worker": effectiveWorker,
-      "orchestrator": effectiveOrch,
-      "created_by": effectiveCreatedBy,
-      "created_at": now().utc().format("yyyy-MM-dd'T'HH:mm:ss'Z'")
-    }
-    writeFile(strandDir / ".vine" / "strand.json", pretty(strandIdentity))
-  except CatchableError:
-    discard
+  # Prune ghost/stale strand record if its directory or canonical repo was deleted externally
+  let existing = getStrandRedis(taskId)
+  if existing != nil and (existing.hasKey("id") or existing.hasKey("task_id")):
+    let oldPath = existing.getOrDefault("strand_path").getStr("")
+    let oldCanon = existing.getOrDefault("canonical_repo").getStr("")
+    if (oldPath.len > 0 and not dirExists(oldPath)) or (oldCanon.len > 0 and not dirExists(oldCanon)):
+      discard pruneStrandRedis(taskId)
 
-  let manifest = %*{
-    "task_id": taskId,
-    "project": projectName,
-    "canonical_repo": repoDir,
-    "strand_path": strandDir,
-    "branch": branch,
-    "base_branch": baseBranch,
-    "parent_branch": baseBranch,
-    "base_commit": baseCommit,
-    "intended_merge_base": intendedMergeBase,
-    "worker": effectiveWorker,
-    "orchestrator": effectiveOrch,
-    "created_by": effectiveCreatedBy,
-    "status": "PROVISIONED",
-    "lifecycle_state": "PROVISIONED",
-    "created_at": now().utc().format("yyyy-MM-dd'T'HH:mm:ss'Z'"),
-    "tool": toolUsed
-  }
-  writeFile(strandDir / ".vine.json", pretty(manifest))
-  
+  # Register strand state in Redis
+  discard createStrandRedis(
+    strandId = taskId,
+    project = projectName,
+    strandPath = strandDir,
+    branch = branch,
+    baseBranch = baseBranch,
+    baseCommit = baseCommit,
+    author = effectiveWorker,
+    authorPubkey = effectiveWorker,
+    orchestrator = effectiveOrch,
+    canonicalRepo = repoDir,
+    machineId = machineId,
+    tool = toolUsed,
+    parentBranch = baseBranch,
+    intendedMergeBase = intendedMergeBase,
+    createdBy = effectiveCreatedBy
+  )
+
+  # Isolated Git Config per Strand / Worktree
+  if toolUsed == "git-worktree":
+    discard execCmdEx("git -C " & quoteShell(repoDir) & " config extensions.worktreeConfig true")
+    discard execCmdEx("git -C " & quoteShell(strandDir) & " config --worktree vine.taskId " & quoteShell(taskId))
+    discard execCmdEx("git -C " & quoteShell(strandDir) & " config --worktree vine.project " & quoteShell(projectName))
+  else:
+    discard execCmdEx("git -C " & quoteShell(strandDir) & " config vine.taskId " & quoteShell(taskId))
+    discard execCmdEx("git -C " & quoteShell(strandDir) & " config vine.project " & quoteShell(projectName))
+
   var res = newJObject()
   res["status"] = %"created"
   res["task_id"] = %taskId
@@ -241,6 +243,7 @@ proc doStrandNew*(
   res["worker"] = %effectiveWorker
   res["orchestrator"] = %effectiveOrch
   res["created_by"] = %effectiveCreatedBy
+  res["machine_id"] = %machineId
   res["tool"] = %toolUsed
   return (res, 0)
 
@@ -249,9 +252,17 @@ proc doStrandList*(repoDirParam: string = "", includeAll: bool = false): JsonNod
   let projectName = repoDir.splitPath.tail
   let workspacesBase = getWorkspacesBaseDir()
 
+  let filterProj = if includeAll: "" else: projectName
+  let redisResp = listStrandsRedis("", filterProj)
   var strands = newJArray()
+  if redisResp != nil and redisResp.kind == JObject and redisResp.hasKey("strands"):
+    for s in redisResp["strands"]:
+      if not s.hasKey("status") and s.hasKey("state"):
+        s["status"] = s["state"]
+      strands.add(s)
 
-  if dirExists(workspacesBase):
+  # Fallback for orphan discovery or legacy migration
+  if strands.len == 0 and dirExists(workspacesBase):
     for kind, projectDir in walkDir(workspacesBase):
       if kind == pcDir:
         let curProj = projectDir.splitPath.tail
@@ -280,34 +291,42 @@ proc doStrandPrune*(repoDirParam: string = "", maxAgeHours: float = 24.0, dryRun
 
   for item in listData["strands"]:
     let path = item{"strand_path"}.getStr("")
-    let status = item{"status"}.getStr("")
+    let status = item{"status"}.getStr(item{"state"}.getStr(""))
+    let taskId = item{"task_id"}.getStr(item{"id"}.getStr(""))
     let createdAt = item{"created_at"}.getStr("")
     let canonRepo = item{"canonical_repo"}.getStr("")
     var ageHours = 0.0
 
     try:
-      let dt = parse(createdAt, "yyyy-MM-dd'T'HH:mm:ss'Z'", utc())
-      ageHours = (nowEpoch - dt.toTime().toUnix().float) / 3600.0
+      if createdAt.len > 0:
+        if createdAt.contains('T'):
+          let dt = parse(createdAt, "yyyy-MM-dd'T'HH:mm:ss'Z'", utc())
+          ageHours = (nowEpoch - dt.toTime().toUnix().float) / 3600.0
+        else:
+          ageHours = (nowEpoch - parseFloat(createdAt)) / 3600.0
     except CatchableError: discard
 
-    let shouldPrune = (status in ["WEAVED", "MERGED", "CLOSED"]) or (ageHours >= maxAgeHours)
-    if shouldPrune and dirExists(path):
+    let shouldPrune = (status in ["WEAVED", "WOVEN", "MERGED", "CLOSED"]) or (ageHours >= maxAgeHours)
+    if shouldPrune and (path.len == 0 or dirExists(path)):
       if not dryRun:
         if canonRepo.len > 0 and dirExists(canonRepo):
           discard execCmdEx("git -C " & quoteShell(canonRepo) & " worktree remove --force " & quoteShell(path))
           discard execCmdEx("git -C " & quoteShell(canonRepo) & " worktree prune")
-        else:
+        elif path.len > 0:
           discard execCmdEx("git worktree remove --force " & quoteShell(path))
-        if dirExists(path):
+        if path.len > 0 and dirExists(path):
           try: removeDir(path)
           except CatchableError: discard
-        if dirExists(path.parentDir()):
+        if path.len > 0 and dirExists(path.parentDir()):
           try: removeDir(path.parentDir())
           except CatchableError: discard
+        if taskId.len > 0:
+          discard pruneStrandRedis(taskId)
       var prunedItem = newJObject()
       prunedItem["strand_path"] = %path
+      prunedItem["task_id"] = %taskId
       prunedItem["age_hours"] = %ageHours
-      prunedItem["reason"] = if status in ["WEAVED", "MERGED", "CLOSED"]: %status else: %"expired"
+      prunedItem["reason"] = if status in ["WEAVED", "WOVEN", "MERGED", "CLOSED"]: %status else: %"expired"
       pruned.add(prunedItem)
 
   var res = newJObject()
@@ -322,12 +341,7 @@ proc doStrandSync*(
   useRebase: bool = false
 ): tuple[output: JsonNode, exitCode: int] =
   let strandDir = if strandDirParam.len > 0: strandDirParam.normalizedPath else: getCurrentDir()
-  let manifestPath = strandDir / ".vine.json"
-  var manifest: JsonNode = nil
-
-  if fileExists(manifestPath):
-    try: manifest = parseJson(readFile(manifestPath))
-    except CatchableError: discard
+  var manifest = findStrandManifest(strandDir)
 
   # Check working tree cleanliness (tracked changes or staged files, ignoring untracked metadata)
   let (_, dirtyCode) = execCmdEx("git -C " & quoteShell(strandDir) & " diff-index --quiet HEAD --")
@@ -392,13 +406,11 @@ proc doStrandSync*(
     errObj["message"] = %("Sync failed due to conflicts with " & baseBranch & ": " & sOut)
     return (errObj, sCode)
 
-  # Update manifest if present
-  if manifest != nil:
-    if canonicalBaseCommit.len > 0:
-      manifest["base_commit"] = %canonicalBaseCommit
-    manifest["status"] = %"SYNCED"
-    manifest["synced_at"] = %now().utc().format("yyyy-MM-dd'T'HH:mm:ss'Z'")
-    writeFile(manifestPath, pretty(manifest))
+  # Update Redis state if present
+  if manifest != nil and (manifest.hasKey("id") or manifest.hasKey("task_id")):
+    let tid = manifest.getOrDefault("id").getStr(manifest.getOrDefault("task_id").getStr(""))
+    if tid.len > 0:
+      discard updateGateRedis(tid, "SYNCED")
 
   var res = newJObject()
   res["status"] = %"synced"
@@ -409,45 +421,87 @@ proc doStrandSync*(
   res["mode"] = if useRebase: %"rebase" else: %"merge"
   return (res, 0)
 
-proc findStrandManifest*(query: string, repoDirParam: string = ""): JsonNode =
+proc findStrandManifest*(query: string = "", repoDirParam: string = ""): JsonNode =
   let q = query.strip()
-  if q.len == 0: return nil
+  let machineId = getMachineId()
 
-  # 1. Direct path check
-  if dirExists(q) and fileExists(q / ".vine.json"):
-    try: return parseJson(readFile(q / ".vine.json"))
-    except CatchableError: discard
+  # Tier 1: Explicit query (id, compound key, or path)
+  if q.len > 0:
+    let s = getStrandRedis(q)
+    if s != nil and s.kind == JObject and (s.hasKey("id") or s.hasKey("task_id")):
+      if not s.hasKey("status") and s.hasKey("state"): s["status"] = s["state"]
+      return s
 
-  if fileExists(q) and q.endsWith(".vine.json"):
-    try: return parseJson(readFile(q))
-    except CatchableError: discard
+    if dirExists(q) or fileExists(q):
+      let normPath = if dirExists(q): q.normalizedPath else: q.parentDir().normalizedPath
+      let byPath = resolveStrandByPathRedis(normPath, machineId)
+      if byPath != nil and byPath.kind == JObject and (byPath.hasKey("id") or byPath.hasKey("task_id")):
+        if not byPath.hasKey("status") and byPath.hasKey("state"): byPath["status"] = byPath["state"]
+        return byPath
 
-  if dirExists(q.parentDir()) and fileExists(q.parentDir() / ".vine.json"):
-    try: return parseJson(readFile(q.parentDir() / ".vine.json"))
-    except CatchableError: discard
+    # Legacy on-disk check (for transition migration)
+    if dirExists(q) and fileExists(q / ".vine.json"):
+      try: return parseJson(readFile(q / ".vine.json"))
+      except CatchableError: discard
+    if fileExists(q) and q.endsWith(".vine.json"):
+      try: return parseJson(readFile(q))
+      except CatchableError: discard
+    if dirExists(q.parentDir()) and fileExists(q.parentDir() / ".vine.json"):
+      try: return parseJson(readFile(q.parentDir() / ".vine.json"))
+      except CatchableError: discard
 
-  # 2. Workspace search by task_id, branch, or path suffix
-  let qNorm = q.toLowerAscii
-  let qBare = if qNorm.startsWith("strand/"): qNorm[7..^1]
-              elif qNorm.startsWith("refs/heads/strand/"): qNorm[18..^1]
-              elif qNorm.startsWith("refs/heads/"): qNorm[11..^1]
-              else: qNorm
+  # Tier 2: Check current branch convention (refs/heads/strand/<id> or strand/<id>)
+  let targetDir = if q.len > 0 and dirExists(q): q.normalizedPath else: getCurrentDir()
+  let (bOut, bCode) = execCmdEx("git -C " & quoteShell(targetDir) & " rev-parse --abbrev-ref HEAD")
+  if bCode == 0:
+    let br = bOut.strip()
+    var candidateId = ""
+    if br.startsWith("strand/"):
+      candidateId = br[7..^1]
+    elif br.startsWith("refs/heads/strand/"):
+      candidateId = br[18..^1]
+    if candidateId.len > 0:
+      let s = getStrandRedis(candidateId)
+      if s != nil and s.kind == JObject and (s.hasKey("id") or s.hasKey("task_id")):
+        if not s.hasKey("status") and s.hasKey("state"): s["status"] = s["state"]
+        return s
 
-  let passes = if repoDirParam.len > 0: @[false, true] else: @[true]
-  for includeAll in passes:
-    let listData = doStrandList(repoDirParam, includeAll = includeAll)
+  # Tier 3: Isolated git config (vine.taskId)
+  let (cfgOut, cfgCode) = execCmdEx("git -C " & quoteShell(targetDir) & " config vine.taskId")
+  if cfgCode == 0 and cfgOut.strip().len > 0:
+    let s = getStrandRedis(cfgOut.strip())
+    if s != nil and s.kind == JObject and (s.hasKey("id") or s.hasKey("task_id")):
+      if not s.hasKey("status") and s.hasKey("state"): s["status"] = s["state"]
+      return s
+
+  # Tier 4: Reverse path index of git toplevel or cwd
+  let (topOut, topCode) = execCmdEx("git -C " & quoteShell(targetDir) & " rev-parse --show-toplevel")
+  let toplevel = if topCode == 0 and topOut.strip().len > 0: topOut.strip() else: targetDir
+  let pathStrand = resolveStrandByPathRedis(toplevel, machineId)
+  if pathStrand != nil and pathStrand.kind == JObject and (pathStrand.hasKey("id") or pathStrand.hasKey("task_id")):
+    if not pathStrand.hasKey("status") and pathStrand.hasKey("state"): pathStrand["status"] = pathStrand["state"]
+    return pathStrand
+
+  # Tier 5: Search list of strands by ID or branch
+  if q.len > 0:
+    let qNorm = q.toLowerAscii
+    let qBare = if qNorm.startsWith("strand/"): qNorm[7..^1]
+                elif qNorm.startsWith("refs/heads/strand/"): qNorm[18..^1]
+                elif qNorm.startsWith("refs/heads/"): qNorm[11..^1]
+                else: qNorm
+    let listData = doStrandList(repoDirParam, includeAll = true)
     if listData.hasKey("strands"):
       for s in listData["strands"]:
-        let tid = s.getOrDefault("task_id").getStr("").toLowerAscii
+        let tid = s.getOrDefault("task_id").getStr(s.getOrDefault("id").getStr("")).toLowerAscii
         let br = s.getOrDefault("branch").getStr("").toLowerAscii
         let sPath = s.getOrDefault("strand_path").getStr("").toLowerAscii
         let brBare = if br.startsWith("strand/"): br[7..^1] else: br
 
-        if tid == qNorm or tid == qBare:
-          return s
-        if br == qNorm or br == "strand/" & qNorm or brBare == qBare or brBare == qNorm:
+        if tid == qNorm or tid == qBare or br == qNorm or brBare == qBare:
+          if not s.hasKey("status") and s.hasKey("state"): s["status"] = s["state"]
           return s
         if sPath == qNorm or sPath.endsWith("/" & qBare) or sPath.endsWith("/" & qNorm):
+          if not s.hasKey("status") and s.hasKey("state"): s["status"] = s["state"]
           return s
 
   return nil
@@ -471,12 +525,12 @@ proc doStrandStatus*(strandDirOrId: string = ""): tuple[status: JsonNode, exitCo
   else:
     strandDir = getCurrentDir()
 
-  let manifestPath = strandDir / ".vine.json"
-  if manifest == nil and fileExists(manifestPath):
-    try: manifest = parseJson(readFile(manifestPath))
-    except CatchableError: discard
+  if manifest == nil:
+    manifest = findStrandManifest(strandDir)
 
-  let taskId = if manifest != nil and manifest.hasKey("task_id"): manifest["task_id"].getStr else: strandDir.splitPath.tail
+  let taskId = if manifest != nil and manifest.hasKey("task_id"): manifest["task_id"].getStr
+               elif manifest != nil and manifest.hasKey("id"): manifest["id"].getStr
+               else: strandDir.splitPath.tail
   let project = if manifest != nil and manifest.hasKey("project"): manifest["project"].getStr else: ""
   let strandBranch = if manifest != nil and manifest.hasKey("branch"): manifest["branch"].getStr
                      else:
@@ -486,7 +540,9 @@ proc doStrandStatus*(strandDirOrId: string = ""): tuple[status: JsonNode, exitCo
   let parentBranch = if manifest != nil and manifest.hasKey("parent_branch"): manifest["parent_branch"].getStr else: baseBranch
   let baseCommit = if manifest != nil and manifest.hasKey("base_commit"): manifest["base_commit"].getStr else: ""
   let intendedMergeBase = if manifest != nil and manifest.hasKey("intended_merge_base"): manifest["intended_merge_base"].getStr else: baseCommit
-  let storedStatus = if manifest != nil and manifest.hasKey("status"): manifest["status"].getStr else: "IN_PROGRESS"
+  let storedStatus = if manifest != nil and manifest.hasKey("status"): manifest["status"].getStr
+                     elif manifest != nil and manifest.hasKey("state"): manifest["state"].getStr
+                     else: "IN_PROGRESS"
   let tool = if manifest != nil and manifest.hasKey("tool"): manifest["tool"].getStr else: "git-worktree"
 
   var commitsAhead = 0
@@ -508,12 +564,12 @@ proc doStrandStatus*(strandDirOrId: string = ""): tuple[status: JsonNode, exitCo
       if line.len >= 3:
         let filePath = line[3..^1].strip()
         let topDir = if filePath.contains('/'): filePath.split('/')[0] else: filePath
-        if filePath in [".vine.json", ".envrc", ".venv", ".git", ".vine"] or filePath.startsWith(".vine.") or filePath.startsWith(".vine/") or topDir in ["deps", "nimbledeps", "vendor", "node_modules", ".zig-cache", ".venv"]:
+        if filePath in [".envrc", ".venv", ".git"] or topDir in ["deps", "nimbledeps", "vendor", "node_modules", ".zig-cache", ".venv"]:
           continue
         dirtyFiles.add(%line.strip())
 
   var lifecycleState = "IN_PROGRESS"
-  if storedStatus in ["MERGED", "WEAVED", "CLOSED"]:
+  if storedStatus in ["MERGED", "WEAVED", "WOVEN", "CLOSED"]:
     lifecycleState = "MERGED"
   elif storedStatus == "ABANDONED":
     lifecycleState = "ABANDONED"
@@ -523,14 +579,14 @@ proc doStrandStatus*(strandDirOrId: string = ""): tuple[status: JsonNode, exitCo
     lifecycleState = "CONFLICTED"
   elif storedStatus == "GATE_FAILED":
     lifecycleState = "GATE_FAILED"
-  elif storedStatus == "AUDIT_REJECTED":
+  elif storedStatus == "AUDIT_REJECTED" or storedStatus == "REJECTED":
     lifecycleState = "AUDIT_REJECTED"
-  elif storedStatus == "READY_FOR_AUDIT":
+  elif storedStatus == "READY_FOR_AUDIT" or storedStatus == "SUBMITTED":
     if dirtyFiles.len > 0:
       lifecycleState = "IN_PROGRESS"
     else:
       lifecycleState = "READY_FOR_AUDIT"
-  elif storedStatus in ["AUDIT_RATIFIED"]:
+  elif storedStatus in ["AUDIT_RATIFIED", "RATIFIED"]:
     if dirtyFiles.len > 0:
       lifecycleState = "IN_PROGRESS"
     else:
@@ -568,6 +624,7 @@ proc doStrandStatus*(strandDirOrId: string = ""): tuple[status: JsonNode, exitCo
     if manifest.hasKey("auditor"): res["auditor"] = manifest["auditor"]
     if manifest.hasKey("audit_token"): res["audit_token"] = manifest["audit_token"]
     if manifest.hasKey("rejection_reason"): res["rejection_reason"] = manifest["rejection_reason"]
+    if manifest.hasKey("machine_id"): res["machine_id"] = manifest["machine_id"]
 
   return (res, 0)
 
@@ -616,7 +673,7 @@ proc doStrandCollisions*(repoDirParam: string = ""): JsonNode =
       for line in uOut.splitLines():
         if line.len >= 3:
           let f = line[3..^1].strip()
-          if f.len > 0 and f notin [".vine.json", ".envrc", ".venv", ".git"] and not f.startsWith(".vine."):
+          if f.len > 0 and f notin [".envrc", ".venv", ".git"] and not f.startsWith(".rhizo"):
             touchedFiles.incl(f)
 
     var sortedFiles: seq[string] = @[]

@@ -252,7 +252,10 @@ suite "Vine Strand Lifecycle Notifications & Multicast Suite":
         discard execCmdEx("git -C " & quoteShell(repo) & " worktree prune")
         removeDir(strandPath1.parentDir())
 
-      let strandDotJson1 = parseFile(strandPath1 / ".vine" / "strand.json")
+      check not fileExists(strandPath1 / ".vine" / "strand.json")
+      check not fileExists(strandPath1 / ".vine.json")
+      let strandDotJson1 = findStrandManifest(strandPath1)
+      check strandDotJson1 != nil
       check strandDotJson1["created_by"].getStr() == "orch-tester-1"
 
       # 2. doStrandNew with NO created_by and NO orchestrator
@@ -273,12 +276,12 @@ suite "Vine Strand Lifecycle Notifications & Multicast Suite":
         discard execCmdEx("git -C " & quoteShell(repo) & " worktree prune")
         removeDir(strandPath2.parentDir())
 
-      let strandDotJson2 = parseFile(strandPath2 / ".vine" / "strand.json")
+      check not fileExists(strandPath2 / ".vine" / "strand.json")
+      check not fileExists(strandPath2 / ".vine.json")
+      let strandDotJson2 = findStrandManifest(strandPath2)
+      check strandDotJson2 != nil
       check strandDotJson2["created_by"].getStr() == ""
       check strandDotJson2["orchestrator"].getStr() == ""
-      let manifest2 = parseFile(strandPath2 / ".vine.json")
-      check manifest2["created_by"].getStr() == ""
-      check manifest2["orchestrator"].getStr() == ""
       # Negative control: assert it does NOT contain the old pattern "<repoName>-orchestrator"
       let repoBase = repo.splitPath.tail
-      check manifest2["orchestrator"].getStr() != (repoBase & "-orchestrator")
+      check strandDotJson2["orchestrator"].getStr() != (repoBase & "-orchestrator")

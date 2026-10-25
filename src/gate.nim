@@ -2,7 +2,7 @@
 # The Two-Key Integration Gate for Braid (Zero Green Mirage).
 
 import std/[os, osproc, strutils, json, times]
-import config, strand, crypto, process, notify
+import config, strand, crypto, process, notify, redis_client
 
 const
   ExitGateSuccess* = 0
@@ -307,20 +307,11 @@ proc doBraidGate*(
   allowDefeatDevices: bool = false
 ): tuple[output: JsonNode, exitCode: int] =
   var strandDir = if strandDirParam.len > 0: strandDirParam.normalizedPath else: getCurrentDir()
-  var manifestPath = strandDir / ".vine.json"
-  var manifest: JsonNode = nil
-
-  if fileExists(manifestPath):
-    try: manifest = parseJson(readFile(manifestPath))
-    except CatchableError: discard
-
-  # Auto-resolve from strand registry if manifest not found in current directory
-  if manifest == nil and branchParam.len > 0:
-    let found = findStrandManifest(branchParam, getCurrentDir())
-    if found != nil and found.hasKey("strand_path") and dirExists(found["strand_path"].getStr):
-      manifest = found
-      strandDir = manifest["strand_path"].getStr.normalizedPath
-      manifestPath = strandDir / ".vine.json"
+  var manifest = findStrandManifest(if strandDirParam.len > 0: strandDirParam else: branchParam)
+  if manifest == nil and strandDirParam.len == 0:
+    manifest = findStrandManifest(strandDir)
+  if manifest != nil and manifest.hasKey("strand_path") and dirExists(manifest["strand_path"].getStr):
+    strandDir = manifest["strand_path"].getStr.normalizedPath
 
   let branch = if branchParam.len > 0 and execCmdEx("git -C " & quoteShell(strandDir) & " rev-parse --verify " & quoteShell(branchParam)).exitCode == 0:
                  branchParam
@@ -349,12 +340,12 @@ proc doBraidGate*(
     effectiveTimeout = timeoutSecParam
   let prevStatus = if manifest != nil and manifest.hasKey("status"): manifest["status"].getStr() else: ""
 
-  # Track gate evaluation in manifest if present
-  if manifest != nil:
-    manifest["status"] = %"GATE_EVALUATING"
-    manifest["lifecycle_state"] = %"GATE_EVALUATING"
-    try: writeFile(manifestPath, pretty(manifest))
-    except CatchableError: discard
+  # Track gate evaluation in Redis
+  let strandTaskId = if manifest != nil and manifest.hasKey("task_id"): manifest["task_id"].getStr("")
+                     elif manifest != nil and manifest.hasKey("id"): manifest["id"].getStr("")
+                     else: ""
+  if strandTaskId.len > 0:
+    discard updateGateRedis(strandTaskId, "GATE_EVALUATING")
 
   var res = newJObject()
   res["branch"] = %branch
@@ -381,11 +372,8 @@ proc doBraidGate*(
       if t.len > 0: conflictLines.add(%t)
     res["conflicts"] = conflictLines
 
-    if manifest != nil:
-      manifest["status"] = %"CONFLICTED"
-      manifest["lifecycle_state"] = %"CONFLICTED"
-      try: writeFile(manifestPath, pretty(manifest))
-      except CatchableError: discard
+    if strandTaskId.len > 0:
+      discard updateGateRedis(strandTaskId, "CONFLICTED")
 
     return (res, 1)
 
@@ -420,7 +408,7 @@ proc doBraidGate*(
         rawDiffFiles.add(normPath)
 
         # Ignore coordination metadata & root non-source files
-        if normPath in [".vine.json", ".envrc", ".gitignore", "vine.toml", "README.md", "LICENSE"] or
+        if normPath in [".envrc", ".gitignore", "vine.toml", "README.md", "LICENSE"] or
            normPath.startsWith(".git") or normPath.startsWith(".rhizo"):
           continue
 
@@ -441,11 +429,8 @@ proc doBraidGate*(
         res["clean"] = %false
         res["two_point_diff"] = %"FAIL"
         res["two_point_diff_error"] = %"Two-Point Diff Violation: 100% of changes are in tests/. Deliverable must include production capability in application source files (src/, bin/, etc.)."
-        if manifest != nil:
-          manifest["status"] = %"GATE_FAILED"
-          manifest["lifecycle_state"] = %"GATE_FAILED"
-          try: writeFile(manifestPath, pretty(manifest))
-          except CatchableError: discard
+        if strandTaskId.len > 0:
+          discard updateGateRedis(strandTaskId, "GATE_FAILED")
         return (res, 3)
 
       # Invariant 2: Newly introduced capabilities must have a consumer call-site in application source files
@@ -485,11 +470,8 @@ proc doBraidGate*(
           res["two_point_diff"] = %"FAIL"
           res["two_point_diff_error"] = %("Two-Point Diff Violation: Newly introduced capability '" & newCap &
             "' lacks a consumer call-site in application source files (src/, bin/, etc.). Shelfware without production caller is prohibited.")
-          if manifest != nil:
-            manifest["status"] = %"GATE_FAILED"
-            manifest["lifecycle_state"] = %"GATE_FAILED"
-            try: writeFile(manifestPath, pretty(manifest))
-            except CatchableError: discard
+          if strandTaskId.len > 0:
+            discard updateGateRedis(strandTaskId, "GATE_FAILED")
           return (res, 3)
 
       res["two_point_diff"] = %"PASS"
@@ -514,11 +496,8 @@ proc doBraidGate*(
             res["changelog_gate"] = %"FAIL"
             res["changelog_error"] = %("Changelog Gate Violation: Repository contains '" & changelogFile &
               "', but this strand diff does not include a changelog update. Record your deliverable under the '## [Unreleased]' section (or run 'vine changelog \"<entry>\"' or pass --allow-no-changelog).")
-            if manifest != nil:
-              manifest["status"] = %"GATE_FAILED"
-              manifest["lifecycle_state"] = %"GATE_FAILED"
-              try: writeFile(manifestPath, pretty(manifest))
-              except CatchableError: discard
+            if strandTaskId.len > 0:
+              discard updateGateRedis(strandTaskId, "GATE_FAILED")
             return (res, ExitGateChangelogViolation)
 
           let changelogFullPath = strandDir / changelogFile
@@ -535,11 +514,8 @@ proc doBraidGate*(
                 res["changelog_gate"] = %"FAIL"
                 res["changelog_error"] = %("Changelog Gate Violation: '" & changelogFile &
                   "' is modified in strand, but is missing an '## [Unreleased]' section. Add or run 'vine changelog --ensure-unreleased'.")
-                if manifest != nil:
-                  manifest["status"] = %"GATE_FAILED"
-                  manifest["lifecycle_state"] = %"GATE_FAILED"
-                  try: writeFile(manifestPath, pretty(manifest))
-                  except CatchableError: discard
+                if strandTaskId.len > 0:
+                  discard updateGateRedis(strandTaskId, "GATE_FAILED")
                 return (res, ExitGateChangelogViolation)
             else:
               res["changelog_gate"] = %"PASS"
@@ -580,11 +556,8 @@ proc doBraidGate*(
         defeatFindings[0].path & ":" & $defeatFindings[0].lineNum & "). " &
         "Deliverables that bypass genuine execution pipelines or emit static mock questionnaires to fake benchmark compliance are strictly prohibited. Pass --allow-defeat-devices to bypass."
       )
-      if manifest != nil:
-        manifest["status"] = %"GATE_FAILED"
-        manifest["lifecycle_state"] = %"GATE_FAILED"
-        try: writeFile(manifestPath, pretty(manifest))
-        except CatchableError: discard
+      if strandTaskId.len > 0:
+        discard updateGateRedis(strandTaskId, "GATE_FAILED")
       return (res, ExitGateDefeatDeviceViolation)
     else:
       res["defeat_device_gate"] = %"PASS"
@@ -631,13 +604,11 @@ proc doBraidGate*(
         res["compiler_output"] = %forensicEnvelope
         res["forensic_envelope"] = %forensicEnvelope
 
-        if manifest != nil:
-          manifest["status"] = %"GATE_TIMEOUT"
-          manifest["lifecycle_state"] = %"GATE_TIMEOUT"
-          manifest["timed_out_command"] = %testCmd
-          manifest["timeout_elapsed_sec"] = %elapsedSec
-          try: writeFile(manifestPath, pretty(manifest))
-          except CatchableError: discard
+        if strandTaskId.len > 0:
+          var extraObj = newJObject()
+          extraObj["timed_out_command"] = %testCmd
+          extraObj["timeout_elapsed_sec"] = %elapsedSec
+          discard updateGateRedis(strandTaskId, "GATE_TIMEOUT", extraJson = $extraObj)
 
         return (res, EXIT_GATE_TIMEOUT)
 
@@ -647,11 +618,8 @@ proc doBraidGate*(
         res["key2_semantic"] = %"FAIL"
         res["compiler_output"] = %tOut.strip()
 
-        if manifest != nil:
-          manifest["status"] = %"GATE_FAILED"
-          manifest["lifecycle_state"] = %"GATE_FAILED"
-          try: writeFile(manifestPath, pretty(manifest))
-          except CatchableError: discard
+        if strandTaskId.len > 0:
+          discard updateGateRedis(strandTaskId, "GATE_FAILED")
 
         return (res, 2)
       res["key2_semantic"] = %"PASS"
@@ -664,11 +632,8 @@ proc doBraidGate*(
       res["key2_semantic"] = %"FAIL (no test runner detected)"
       res["compiler_output"] = %"Zero tests executed: no test runner detected in strand. To prevent Green Mirage, pass --allow-no-tests if this repository does not have tests."
 
-      if manifest != nil:
-        manifest["status"] = %"GATE_FAILED"
-        manifest["lifecycle_state"] = %"GATE_FAILED"
-        try: writeFile(manifestPath, pretty(manifest))
-        except CatchableError: discard
+      if strandTaskId.len > 0:
+        discard updateGateRedis(strandTaskId, "GATE_FAILED")
 
       return (res, 2)
   else:
@@ -680,11 +645,8 @@ proc doBraidGate*(
       res["clean"] = %false
       res["key2_semantic"] = %"FAIL (tests skipped without --allow-no-tests)"
       res["compiler_output"] = %"Zero tests executed: --skip-tests was provided without --allow-no-tests. Gate failed to prevent Green Mirage."
-      if manifest != nil:
-        manifest["status"] = %"GATE_FAILED"
-        manifest["lifecycle_state"] = %"GATE_FAILED"
-        try: writeFile(manifestPath, pretty(manifest))
-        except CatchableError: discard
+      if strandTaskId.len > 0:
+        discard updateGateRedis(strandTaskId, "GATE_FAILED")
       return (res, 2)
 
   # Both Keys and Two-Point Diff Passed!
@@ -697,38 +659,30 @@ proc doBraidGate*(
   res["test_output_hash"] = %testOutputHash
   res["gate_token"] = %gateToken
 
-  # Update .vine.json if present
-  if manifest != nil:
-    if testCmdParam.len > 0:
-      manifest["test_command"] = %testCmdParam
-    manifest["merge_tree_sha"] = %treeSha
-    manifest["test_output_hash"] = %testOutputHash
-    manifest["gate_token"] = %gateToken
-    manifest["verified_at"] = %now().utc().format("yyyy-MM-dd'T'HH:mm:ss'Z'")
-
-    let existingStatus = if manifest.hasKey("status"): manifest["status"].getStr() else: ""
+  # Update strand state in Redis (Zero On-Disk JSON)
+  if strandTaskId.len > 0:
     if submit:
-      manifest["status"] = %"READY_FOR_AUDIT"
-      manifest["lifecycle_state"] = %"READY_FOR_AUDIT"
       var effAuthor = authorParam
       if effAuthor.len == 0:
-        if manifest.hasKey("author"): effAuthor = manifest["author"].getStr()
-        elif manifest.hasKey("worker_name"): effAuthor = manifest["worker_name"].getStr()
+        if manifest != nil and manifest.hasKey("author"): effAuthor = manifest["author"].getStr()
+        elif manifest != nil and manifest.hasKey("worker_name"): effAuthor = manifest["worker_name"].getStr()
         elif getEnv("RHIZO_AGENT_NAME").len > 0: effAuthor = getEnv("RHIZO_AGENT_NAME")
         else: effAuthor = getEnv("USER", "worker")
-      manifest["author"] = %effAuthor
-      manifest["submitted_at"] = %now().utc().format("yyyy-MM-dd'T'HH:mm:ss'Z'")
+      discard submitStrandRedis(strandTaskId, gateToken, effAuthor, effAuthor, treeSha)
       res["status"] = %"ready_for_audit"
       res["author"] = %effAuthor
-    elif prevStatus == "AUDIT_RATIFIED":
-      manifest["status"] = %"AUDIT_RATIFIED"
-      manifest["lifecycle_state"] = %"AUDIT_RATIFIED"
+    elif prevStatus == "AUDIT_RATIFIED" or prevStatus == "RATIFIED":
+      discard updateGateRedis(strandTaskId, "RATIFIED", gateToken, treeSha, testOutputHash)
     else:
-      manifest["status"] = %"READY_FOR_WEAVE"
-      manifest["lifecycle_state"] = %"GATE_PASSED"
+      discard updateGateRedis(strandTaskId, "GATE_PASSED", gateToken, treeSha, testOutputHash)
+  elif submit:
+    var effAuthor = authorParam
+    if effAuthor.len == 0:
+      if getEnv("RHIZO_AGENT_NAME").len > 0: effAuthor = getEnv("RHIZO_AGENT_NAME")
+      else: effAuthor = getEnv("USER", "worker")
+    res["status"] = %"ready_for_audit"
+    res["author"] = %effAuthor
 
-    try: writeFile(manifestPath, pretty(manifest))
-    except CatchableError: discard
   return (res, 0)
 
 proc getMergeTreeSha*(strandDir: string, baseRef: string, branch: string = "HEAD"): string =
@@ -750,19 +704,9 @@ proc doStrandSubmit*(
   noNotify: bool = false
 ): tuple[output: JsonNode, exitCode: int] =
   var strandDir = if strandDirParam.len > 0: strandDirParam.normalizedPath else: getCurrentDir()
-  var manifestPath = strandDir / ".vine.json"
-  var manifest: JsonNode = nil
-
-  if fileExists(manifestPath):
-    try: manifest = parseJson(readFile(manifestPath))
-    except CatchableError: discard
-
-  if manifest == nil and strandDirParam.len > 0:
-    let found = findStrandManifest(strandDirParam, getCurrentDir())
-    if found != nil and found.hasKey("strand_path") and dirExists(found["strand_path"].getStr):
-      manifest = found
-      strandDir = manifest["strand_path"].getStr.normalizedPath
-      manifestPath = strandDir / ".vine.json"
+  var manifest = findStrandManifest(if strandDirParam.len > 0: strandDirParam else: strandDir)
+  if manifest != nil and manifest.hasKey("strand_path") and dirExists(manifest["strand_path"].getStr):
+    strandDir = manifest["strand_path"].getStr.normalizedPath
 
   let effectiveBase = if manifest != nil and manifest.hasKey("base_branch"): manifest["base_branch"].getStr() else: "main"
   let effectiveBranch = if manifest != nil and manifest.hasKey("branch"): manifest["branch"].getStr() else: "HEAD"
@@ -796,9 +740,11 @@ proc doStrandSubmit*(
   if gateCode != 0:
     return (gateRes, gateCode)
 
-  if fileExists(manifestPath):
-    try: manifest = parseJson(readFile(manifestPath))
-    except CatchableError: discard
+  if manifest != nil and (manifest.hasKey("id") or manifest.hasKey("task_id")):
+    let tid = manifest.getOrDefault("id").getStr(manifest.getOrDefault("task_id").getStr(""))
+    let updated = getStrandRedis(tid)
+    if updated != nil and updated.kind == JObject:
+      manifest = updated
 
   var res = newJObject()
   res["status"] = %"ready_for_audit"
@@ -825,24 +771,14 @@ proc doStrandAudit*(
   noNotify: bool = false
 ): tuple[output: JsonNode, exitCode: int] =
   var strandDir = if strandDirParam.len > 0: strandDirParam.normalizedPath else: getCurrentDir()
-  var manifestPath = strandDir / ".vine.json"
-  var manifest: JsonNode = nil
-
-  if fileExists(manifestPath):
-    try: manifest = parseJson(readFile(manifestPath))
-    except CatchableError: discard
-
-  if manifest == nil and strandDirParam.len > 0:
-    let found = findStrandManifest(strandDirParam, getCurrentDir())
-    if found != nil and found.hasKey("strand_path") and dirExists(found["strand_path"].getStr):
-      manifest = found
-      strandDir = manifest["strand_path"].getStr.normalizedPath
-      manifestPath = strandDir / ".vine.json"
+  var manifest = findStrandManifest(if strandDirParam.len > 0: strandDirParam else: strandDir)
+  if manifest != nil and manifest.hasKey("strand_path") and dirExists(manifest["strand_path"].getStr):
+    strandDir = manifest["strand_path"].getStr.normalizedPath
 
   if manifest == nil:
     var errObj = newJObject()
     errObj["status"] = %"error"
-    errObj["error"] = %("No .vine.json manifest found for strand at: " & strandDir)
+    errObj["error"] = %("No strand found for: " & (if strandDirParam.len > 0: strandDirParam else: strandDir))
     return (errObj, 1)
 
   let normAction = action.toLowerAscii
@@ -883,19 +819,18 @@ proc doStrandAudit*(
 
     let reason = if reasonParam.len > 0: reasonParam else: "Audit failed: defects detected during adversarial review."
 
-    manifest["status"] = %"AUDIT_REJECTED"
-    manifest["lifecycle_state"] = %"AUDIT_REJECTED"
-    manifest["auditor"] = %auditor
-    manifest["rejection_reason"] = %reason
-    manifest["rejected_at"] = %now().utc().format("yyyy-MM-dd'T'HH:mm:ss'Z'")
-    if findings.len > 0:
-      manifest["findings"] = %findings
-    try: writeFile(manifestPath, pretty(manifest))
-    except CatchableError: discard
+    let tid = manifest.getOrDefault("id").getStr(manifest.getOrDefault("task_id").getStr(""))
+    if tid.len > 0:
+      let rejRes = rejectStrandRedis(tid, auditor, auditor, reason, findings)
+      if rejRes != nil and rejRes.kind == JObject and rejRes.hasKey("error"):
+        var errObj = newJObject()
+        errObj["status"] = %"audit_violation"
+        errObj["error"] = rejRes["error"]
+        return (errObj, ExitGateAuditViolation)
 
     var res = newJObject()
     res["status"] = %"audit_rejected"
-    res["task_id"] = manifest.getOrDefault("task_id")
+    res["task_id"] = %tid
     res["author"] = %author
     res["auditor"] = %auditor
     res["rejection_reason"] = %reason
@@ -933,8 +868,8 @@ proc doStrandAudit*(
     let recordedTreeSha = manifest.getOrDefault("merge_tree_sha").getStr("")
 
     if gateToken.len == 0 or recordedTreeSha.len == 0 or
-       (currentStatus notin ["READY_FOR_AUDIT", "READY_FOR_WEAVE", "GATE_PASSED"] and
-        currentLifecycle notin ["READY_FOR_AUDIT", "READY_FOR_WEAVE", "GATE_PASSED"]):
+       (currentStatus notin ["READY_FOR_AUDIT", "READY_FOR_WEAVE", "GATE_PASSED", "SUBMITTED"] and
+        currentLifecycle notin ["READY_FOR_AUDIT", "READY_FOR_WEAVE", "GATE_PASSED", "SUBMITTED"]):
       var errObj = newJObject()
       errObj["status"] = %"audit_prerequisite_failed"
       errObj["error"] = %"Strand has not passed Keys 1 & 2. Run 'vine gate' or 'vine submit' before auditing."
@@ -949,7 +884,7 @@ proc doStrandAudit*(
         if t.len >= 3:
           let f = t[3..^1].strip()
           let topDir = if f.contains('/'): f.split('/')[0] else: f
-          if f in [".vine.json", ".envrc", ".venv"] or f.startsWith(".vine") or topDir in ["deps", "nimbledeps", "vendor", "node_modules", ".zig-cache", ".venv"]:
+          if f in [".envrc", ".venv"] or topDir in ["deps", "nimbledeps", "vendor", "node_modules", ".zig-cache", ".venv"]:
             continue
           hasDirty = true
           break
@@ -981,23 +916,18 @@ proc doStrandAudit*(
     let effectiveTreeSha = if currentTreeSha.len > 0: currentTreeSha else: recordedTreeSha
     let auditToken = computeAuditToken(gateToken, effectiveTreeSha, auditor)
 
-    manifest["status"] = %"AUDIT_RATIFIED"
-    manifest["lifecycle_state"] = %"AUDIT_RATIFIED"
-    manifest["auditor"] = %auditor
-    manifest["audit_token"] = %auditToken
-    manifest["audited_at"] = %now().utc().format("yyyy-MM-dd'T'HH:mm:ss'Z'")
-    if notesParam.len > 0:
-      manifest["notes"] = %notesParam
-    if findingsFileParam.len > 0 and fileExists(findingsFileParam):
-      try: manifest["findings"] = %readFile(findingsFileParam)
-      except CatchableError: discard
-
-    try: writeFile(manifestPath, pretty(manifest))
-    except CatchableError: discard
+    let tid = manifest.getOrDefault("id").getStr(manifest.getOrDefault("task_id").getStr(""))
+    if tid.len > 0:
+      let rResp = ratifyStrandRedis(tid, auditor, auditor, auditToken, notesParam)
+      if rResp != nil and rResp.kind == JObject and rResp.hasKey("error"):
+        var errObj = newJObject()
+        errObj["status"] = %"audit_violation"
+        errObj["error"] = rResp["error"]
+        return (errObj, ExitGateAuditViolation)
 
     var res = newJObject()
     res["status"] = %"audit_ratified"
-    res["task_id"] = manifest.getOrDefault("task_id")
+    res["task_id"] = %tid
     res["author"] = %author
     res["auditor"] = %auditor
     res["audit_token"] = %auditToken

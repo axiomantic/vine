@@ -3,7 +3,7 @@
 
 import std/[os, osproc, strutils, json, times]
 import gate, crypto
-import config, strand, notify
+import config, strand, notify, redis_client
 
 proc doBraidWeave*(
   branchParam: string = "",
@@ -16,23 +16,20 @@ proc doBraidWeave*(
   noNotify: bool = false
 ): tuple[output: JsonNode, exitCode: int] =
   var strandDir = if strandDirParam.len > 0: strandDirParam.normalizedPath else: getCurrentDir()
-  var manifestPath = strandDir / ".vine.json"
-  var manifest: JsonNode = nil
+  var manifest = findStrandManifest(if strandDirParam.len > 0: strandDirParam else: branchParam)
+  if manifest == nil and strandDirParam.len == 0:
+    manifest = findStrandManifest(strandDir)
+  if manifest != nil and manifest.hasKey("strand_path") and dirExists(manifest["strand_path"].getStr):
+    strandDir = manifest["strand_path"].getStr.normalizedPath
 
-  if fileExists(manifestPath):
-    try: manifest = parseJson(readFile(manifestPath))
-    except CatchableError: discard
-
-  # Auto-resolve from strand registry if manifest not found in current directory
-  if manifest == nil and branchParam.len > 0:
-    let found = findStrandManifest(branchParam, getCurrentDir())
-    if found != nil and found.hasKey("strand_path") and dirExists(found["strand_path"].getStr):
-      manifest = found
-      strandDir = manifest["strand_path"].getStr.normalizedPath
-      manifestPath = strandDir / ".vine.json"
+  let tid = if manifest != nil: manifest.getOrDefault("id").getStr(manifest.getOrDefault("task_id").getStr("")) else: ""
 
   # Step 1: Run Gate check if not already verified green
-  let isAlreadyRatified = manifest != nil and (manifest.getOrDefault("status").getStr("") == "AUDIT_RATIFIED" or manifest.getOrDefault("lifecycle_state").getStr("") == "AUDIT_RATIFIED")
+  let isAlreadyRatified = manifest != nil and (
+    manifest.getOrDefault("status").getStr("") in ["AUDIT_RATIFIED", "RATIFIED"] or
+    manifest.getOrDefault("lifecycle_state").getStr("") in ["AUDIT_RATIFIED", "RATIFIED"] or
+    manifest.getOrDefault("state").getStr("") in ["AUDIT_RATIFIED", "RATIFIED"]
+  )
   if not force and not isAlreadyRatified:
     let effectiveBase = if baseRefParam.len > 0: baseRefParam
                         elif manifest != nil and manifest.hasKey("base_branch"): manifest["base_branch"].getStr()
@@ -45,22 +42,24 @@ proc doBraidWeave*(
       errObj["gate_results"] = gateRes
       return (errObj, gateCode)
 
-  # Reload manifest in case doBraidGate updated it
-  if fileExists(manifestPath):
-    try: manifest = parseJson(readFile(manifestPath))
-    except CatchableError: discard
+  # Reload manifest from Redis in case doBraidGate updated it
+  if tid.len > 0:
+    let updated = getStrandRedis(tid)
+    if updated != nil and updated.kind == JObject:
+      manifest = updated
 
   # Step 2: Enforce Key 3 (Pre-Weave Adversarial Audit)
   if not force and not allowUnaudited:
     if manifest == nil:
       var errObj = newJObject()
       errObj["status"] = %"audit_violation"
-      errObj["message"] = %"Key 3 Audit Violation: No .vine.json manifest found in strand. Strand must be audited and ratified by an independent auditor. Pass --allow-unaudited to bypass."
+      errObj["message"] = %"Key 3 Audit Violation: No strand metadata found. Strand must be audited and ratified by an independent auditor. Pass --allow-unaudited to bypass."
       return (errObj, ExitGateAuditViolation)
 
     let st = manifest.getOrDefault("status").getStr("")
     let ls = manifest.getOrDefault("lifecycle_state").getStr("")
-    if st != "AUDIT_RATIFIED" and ls != "AUDIT_RATIFIED":
+    let state = manifest.getOrDefault("state").getStr("")
+    if st notin ["AUDIT_RATIFIED", "RATIFIED"] and ls notin ["AUDIT_RATIFIED", "RATIFIED"] and state notin ["AUDIT_RATIFIED", "RATIFIED"]:
       var errObj = newJObject()
       errObj["status"] = %"audit_violation"
       errObj["message"] = %("Key 3 Audit Violation: Strand status is '" & st & "', but requires 'AUDIT_RATIFIED' before trunk weaving. Pass --allow-unaudited to bypass.")
@@ -127,17 +126,33 @@ proc doBraidWeave*(
     errObj["message"] = %("Canonical repository not found for project: " & projectName)
     return (errObj, 1)
 
-  # Step 2: Fetch branch directly if it's an isolated clone (rift)
-  let isWorktree = (manifest != nil and manifest.hasKey("tool") and manifest["tool"].getStr() == "git-worktree") or
-                   (execCmdEx("git -C " & quoteShell(canonicalRepo) & " worktree list").output.contains(strandDir))
-  if not isWorktree:
-    let fetchCmd = "git -C " & quoteShell(canonicalRepo) & " fetch " & quoteShell(strandDir) & " " & quoteShell(branch & ":" & branch)
-    let (fOut, fCode) = execCmdEx(fetchCmd)
-    if fCode != 0:
+  # Dual-Mode Transport: Co-located vs Remote Strand
+  let strandMachineId = if manifest != nil and manifest.hasKey("machine_id"): manifest["machine_id"].getStr("") else: ""
+  let localMachineId = getMachineId()
+  let isColocated = (strandMachineId.len == 0 or strandMachineId == localMachineId)
+
+  # Step 2: Fetch branch
+  if not isColocated:
+    # Remote strand: fetch branch commits from remote git origin before evaluating merge
+    let fetchRemoteCmd = "git -C " & quoteShell(canonicalRepo) & " fetch origin " & quoteShell(branch & ":" & branch)
+    let (frOut, frCode) = execCmdEx(fetchRemoteCmd)
+    if frCode != 0:
       var errObj = newJObject()
       errObj["status"] = %"fetch_failed"
-      errObj["message"] = %("git fetch from strand failed: " & fOut)
-      return (errObj, fCode)
+      errObj["message"] = %("git fetch origin from remote strand failed: " & frOut)
+      return (errObj, frCode)
+  else:
+    # Co-located strand: fetch branch directly if it's an isolated clone (rift)
+    let isWorktree = (manifest != nil and manifest.hasKey("tool") and manifest["tool"].getStr() == "git-worktree") or
+                     (execCmdEx("git -C " & quoteShell(canonicalRepo) & " worktree list").output.contains(strandDir))
+    if not isWorktree and dirExists(strandDir):
+      let fetchCmd = "git -C " & quoteShell(canonicalRepo) & " fetch " & quoteShell(strandDir) & " " & quoteShell(branch & ":" & branch)
+      let (fOut, fCode) = execCmdEx(fetchCmd)
+      if fCode != 0:
+        var errObj = newJObject()
+        errObj["status"] = %"fetch_failed"
+        errObj["message"] = %("git fetch from strand failed: " & fOut)
+        return (errObj, fCode)
 
   # Step 3: Fast-forward merge into base branch in canonical repo
   let checkoutCmd = "git -C " & quoteShell(canonicalRepo) & " checkout " & quoteShell(baseBranch)
@@ -151,24 +166,34 @@ proc doBraidWeave*(
     errObj["message"] = %("git merge --ff-only failed: " & mOut.strip() & ". Canonical trunk has diverged. Run 'vine sync' inside the strand first.")
     return (errObj, mCode)
 
-  # Step 4: Prune strand directory
+  # Step 4: Prune strand directory (only if co-located)
   try: setCurrentDir(canonicalRepo)
   except CatchableError: discard
 
-  if isWorktree:
-    discard execCmdEx("git -C " & quoteShell(canonicalRepo) & " worktree remove --force " & quoteShell(strandDir))
-    discard execCmdEx("git -C " & quoteShell(canonicalRepo) & " worktree prune")
-  else:
+  if isColocated:
+    let isWorktree = (manifest != nil and manifest.hasKey("tool") and manifest["tool"].getStr() == "git-worktree") or
+                     (execCmdEx("git -C " & quoteShell(canonicalRepo) & " worktree list").output.contains(strandDir))
+    if isWorktree:
+      discard execCmdEx("git -C " & quoteShell(canonicalRepo) & " worktree remove --force " & quoteShell(strandDir))
+      discard execCmdEx("git -C " & quoteShell(canonicalRepo) & " worktree prune")
+    else:
+      try:
+        if dirExists(strandDir): removeDir(strandDir)
+      except CatchableError: discard
+
     try:
-      if dirExists(strandDir): removeDir(strandDir)
+      let parent = strandDir.parentDir()
+      let wsBase = getWorkspacesBaseDir()
+      if dirExists(parent) and parent != home and parent != devBase and parent != wsBase:
+        removeDir(parent)
     except CatchableError: discard
 
-  try:
-    let parent = strandDir.parentDir()
-    let wsBase = getWorkspacesBaseDir()
-    if dirExists(parent) and parent != home and parent != devBase and parent != wsBase:
-      removeDir(parent)
-  except CatchableError: discard
+  # Step 5: Update Redis Strand State to WOVEN (Atomically updates state and removes strands:by_path)
+  let (headShaOut, _) = execCmdEx("git -C " & quoteShell(canonicalRepo) & " rev-parse HEAD")
+  let headSha = headShaOut.strip()
+  let byAgent = getEnv("RHIZO_AGENT_NAME", getEnv("USER", "orchestrator"))
+  if tid.len > 0:
+    discard weaveStrandRedis(tid, headSha, byAgent)
 
   # Step 5: Auto-harvest matching Garden task seed if .garden exists in canonicalRepo
   let gSeeds = canonicalRepo / ".garden" / "seeds"

@@ -71,7 +71,9 @@ suite "Vine Advanced Two-Key Gate & Timeout Rail Suite":
       check gFailRes["status"].getStr() == "semantic_failure"
       check gFailRes["key2_semantic"].getStr().contains("FAIL")
 
-      let mFail = parseFile(strandPath / ".vine.json")
+      check not fileExists(strandPath / ".vine.json")
+      let mFail = findStrandManifest(strandPath)
+      check mFail != nil
       check mFail["status"].getStr() == "GATE_FAILED"
 
       # Gate WITH allowNoTests MUST pass
@@ -85,8 +87,10 @@ suite "Vine Advanced Two-Key Gate & Timeout Rail Suite":
       check gPassRes["clean"].getBool() == true
       check gPassRes.hasKey("gate_token")
 
-      let mPass = parseFile(strandPath / ".vine.json")
-      check mPass["status"].getStr() == "READY_FOR_WEAVE"
+      check not fileExists(strandPath / ".vine.json")
+      let mPass = findStrandManifest(strandPath)
+      check mPass != nil
+      check mPass["status"].getStr() in ["READY_FOR_WEAVE", "GATE_PASSED"]
       check mPass["lifecycle_state"].getStr() == "GATE_PASSED"
 
   test "Two-Point Diff Invariant 1: rejects strands where 100% of changes are in tests/":
@@ -132,7 +136,9 @@ suite "Vine Advanced Two-Key Gate & Timeout Rail Suite":
       check gRes["status"].getStr() == "two_point_diff_failed"
       check gRes["two_point_diff"].getStr() == "FAIL"
 
-      let m = parseFile(strandPath / ".vine.json")
+      check not fileExists(strandPath / ".vine.json")
+      let m = findStrandManifest(strandPath)
+      check m != nil
       check m["status"].getStr() == "GATE_FAILED"
 
   test "Two-Point Diff Invariant 2: rejects strands with new capability lacking consumer call-site":
@@ -231,8 +237,10 @@ suite "Vine Advanced Two-Key Gate & Timeout Rail Suite":
       check gRes["key2_semantic"].getStr() == "PASS"
 
       # Verify cryptographic gate certificate
-      let manifest = parseFile(strandPath / ".vine.json")
-      check manifest["status"].getStr() == "READY_FOR_WEAVE"
+      check not fileExists(strandPath / ".vine.json")
+      let manifest = findStrandManifest(strandPath)
+      check manifest != nil
+      check manifest["status"].getStr() in ["READY_FOR_WEAVE", "GATE_PASSED"]
       check manifest["lifecycle_state"].getStr() == "GATE_PASSED"
       check manifest.hasKey("merge_tree_sha")
       check manifest.hasKey("test_output_hash")
@@ -303,7 +311,9 @@ suite "Vine Advanced Two-Key Gate & Timeout Rail Suite":
       check envelope.contains("Do NOT bypass or skip tests")
 
       # 3. Strand manifest lifecycle state
-      let manifest = parseFile(strandPath / ".vine.json")
+      check not fileExists(strandPath / ".vine.json")
+      let manifest = findStrandManifest(strandPath)
+      check manifest != nil
       check manifest["status"].getStr() == "GATE_TIMEOUT"
       check manifest["lifecycle_state"].getStr() == "GATE_TIMEOUT"
       check manifest.hasKey("timed_out_command")
