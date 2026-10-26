@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.15] - 2026-10-25
+
 ### Added
 - **Atomic `vine submit --listen` & `vine submit --commit <msg>` (`src/vine.nim`, `src/gate.nim`, `src/notify.nim`)**:
   - Added CLI flag `--listen` (`-l`) to `vine submit`, executing `rhizo listen <author>` in the foreground immediately after verifying Keys 1 & 2 (merge-tree, tests, changelog) and recording `READY_FOR_AUDIT` in Redis.

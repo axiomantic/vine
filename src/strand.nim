@@ -623,6 +623,9 @@ proc doStrandStatus*(strandDirOrId: string = ""): tuple[status: JsonNode, exitCo
     elif manifest.hasKey("worker_name"): res["author"] = manifest["worker_name"]
     if manifest.hasKey("auditor"): res["auditor"] = manifest["auditor"]
     if manifest.hasKey("audit_token"): res["audit_token"] = manifest["audit_token"]
+    if manifest.hasKey("gate_token"): res["gate_token"] = manifest["gate_token"]
+    if manifest.hasKey("merge_tree_sha"): res["merge_tree_sha"] = manifest["merge_tree_sha"]
+    if manifest.hasKey("test_output_hash"): res["test_output_hash"] = manifest["test_output_hash"]
     if manifest.hasKey("rejection_reason"): res["rejection_reason"] = manifest["rejection_reason"]
     if manifest.hasKey("machine_id"): res["machine_id"] = manifest["machine_id"]
 
