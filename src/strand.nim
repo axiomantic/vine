@@ -256,10 +256,17 @@ proc doStrandList*(repoDirParam: string = "", includeAll: bool = false): JsonNod
   let redisResp = listStrandsRedis("", filterProj)
   var strands = newJArray()
   if redisResp != nil and redisResp.kind == JObject and redisResp.hasKey("strands"):
-    for s in redisResp["strands"]:
-      if not s.hasKey("status") and s.hasKey("state"):
-        s["status"] = s["state"]
-      strands.add(s)
+    let sNode = redisResp["strands"]
+    if sNode.kind == JArray:
+      for s in sNode:
+        if not s.hasKey("status") and s.hasKey("state"):
+          s["status"] = s["state"]
+        strands.add(s)
+    elif sNode.kind == JObject:
+      for _, s in sNode:
+        if not s.hasKey("status") and s.hasKey("state"):
+          s["status"] = s["state"]
+        strands.add(s)
 
   # Fallback for orphan discovery or legacy migration
   if strands.len == 0 and dirExists(workspacesBase):

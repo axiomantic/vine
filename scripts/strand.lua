@@ -529,6 +529,10 @@ elseif action == "list" then
         end
     end
 
+    if #strands == 0 then
+        return '{"status":"OK","count":0,"strands":[]}'
+    end
+
     return cjson.encode({
         status = "OK",
         count = #strands,
