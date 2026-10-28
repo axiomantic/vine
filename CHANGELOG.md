@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.16] - 2026-10-28
+
+### Fixed
+- **Empty Strands Array Encoding in `vine list` (`scripts/strand.lua`, `src/strand.nim`)**:
+  - Fixed an `AssertionDefect` crash (`node.kind == JArray`) in `vine list` when no strands exist. Updated `scripts/strand.lua` to explicitly return `{"status":"OK","count":0,"strands":[]}` instead of letting `cjson.encode` encode an empty table as `{}`.
+  - Hardened `src/strand.nim` parser to safely handle both `JArray` and `JObject` responses from Redis.
+
+### Documentation
+- **Multi-Agent Guide Harmonization (`AGENTS.md`)**:
+  - Updated embedded Rhizo guide to `v2.0` and Garden guide to `v2.7` with the Project-Scoped Fleet Mandate and Anti-Hijacking Invariant.
+
 ## [0.2.15] - 2026-10-25
 
 ### Added
