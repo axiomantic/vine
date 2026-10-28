@@ -147,9 +147,10 @@ proc readRespResponse*(sock: Socket): JsonNode =
 proc executeRawRedis*(args: openArray[string]): JsonNode =
   let cfg = loadRedisConfig()
   var sock = newSocket()
-  sock.setSockOpt(OptNoDelay, true)
   try:
     sock.connect(cfg.host, cfg.port, cfg.timeoutMs)
+    try: sock.setSockOpt(OptNoDelay, true)
+    except CatchableError: discard
     if cfg.password.len > 0:
       sock.send(formatRespCommand(["AUTH", cfg.password]))
       discard sock.readRespResponse()

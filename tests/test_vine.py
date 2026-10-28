@@ -13,6 +13,11 @@ from pathlib import Path
 _bin_name = "vine.exe" if sys.platform == "win32" or (Path(__file__).parent.parent / "bin" / "vine.exe").exists() else "vine"
 VINE_BIN = Path(__file__).parent.parent / "bin" / _bin_name
 
+TEST_TMPDIR = tempfile.mkdtemp(prefix="vine-tests-")
+TEST_WORKSPACES = os.path.join(TEST_TMPDIR, "workspaces")
+os.makedirs(TEST_WORKSPACES, mode=0o777, exist_ok=True)
+os.environ["VINE_WORKSPACES_DIR"] = TEST_WORKSPACES
+
 def run_vine(*args, cwd=None, env=None):
     cmd = [str(VINE_BIN)] + list(args)
     proc_env = os.environ.copy()
