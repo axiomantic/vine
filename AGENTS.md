@@ -2,7 +2,7 @@
 
 This repository guide establishes the runtime invariants, directory hygiene, and coordination protocols for AI coding agents operating across projects.
 
-<!-- BEGIN RHIZO GUIDE [v1.8] -->
+<!-- BEGIN RHIZO GUIDE [v2.0] -->
 <!-- DO NOT EDIT DIRECTLY: Managed by `rhizo guide install` -->
 
 ## Rhizo Multi-Agent Coordination Guide
@@ -22,7 +22,19 @@ Identity Allocation: Agent identity must be unique and collision-free. Run 'rhiz
 </INVARIANT>
 
 <INVARIANT>
-Unbootstrapped Session Identity: If a session was NOT explicitly bootstrapped with an identity in its conversation history (via a Garden bootstrap prompt card, an explicit operator assignment, or prior 'rhizo open <name>' in that same conversation), it MUST NEVER guess, adopt, or assume an existing identity from 'rhizo who --json' or 'garden-swarm.json' (especially NEVER '<project>-orchestrator'). If the operator commands '/rhizo listen' without arguments in an unbootstrapped session, the session MUST either:
+Single-Orchestrator Mutual Exclusion via Leader Leases: Every project has at most ONE active Orchestrator. When assuming or claiming the orchestrator role for a project, the candidate session MUST acquire the distributed leader lease:
+```bash
+rhizo leader acquire orchestrator:<project> --agent <name> --lease 7200
+```
+If the command outputs 'HELD:<incumbent>' (or status is active under another leader), an active orchestrator is already leading the cluster for <project>. The incoming session MUST NOT usurp leadership, force-kill the incumbent, or issue conflicting directives. It must stand by, coordinate as a peer worker, or notify the operator. When the orchestrator voluntarily steps down or completes the mission, it must run 'rhizo leader resign orchestrator:<project> --agent <name>'.
+</INVARIANT>
+
+<INVARIANT>
+Deprecation of Aliases in Favor of Sovereign Handles & Capability Tags: Legacy aliases ('rhizo alias') are deprecated. Swarms must not rely on mutable alias redirections or static role names. Every session operates under its sovereign unique codename (allocated via 'rhizo name') and advertises its capabilities dynamically via tags (e.g. 'rhizo tag add orchestrator', 'rhizo tag add lead'). Multicast and routing target capability tags directly (e.g. '@orchestrator', '@<project>') or elect dynamic leaders via 'rhizo leader status orchestrator:<project>'.
+</INVARIANT>
+
+<INVARIANT>
+Unbootstrapped Session Identity: If a session was NOT explicitly bootstrapped with an identity in its conversation history (via a Garden bootstrap prompt card, an explicit operator assignment, or prior 'rhizo open <name>' in that same conversation), it MUST NEVER guess, adopt, or assume an existing identity from 'rhizo who --json' or static role files. If the operator commands '/rhizo listen' without arguments in an unbootstrapped session, the session MUST either:
 1. Run 'rhizo name' to allocate a fresh unique identity, followed by 'rhizo open <name>', OR
 2. Ask the operator via 'ask_question' which persona or role this window represents.
 Never assume you are the orchestrator or an existing active worker simply because those names appear in the project directory.
@@ -81,10 +93,16 @@ Post-Compaction Ceremony Restoration: If a session utilizes Rhizo, Garden, or Vi
 
 ### 8. Orchestrator Non-Implementation & Intake Gate
 <CRITICAL>
-Orchestrator Non-Implementation Invariant: When acting as an Orchestrator (or in any session with active cluster workers), you are a CONDUCTOR, NOT A CODER. When the operator presents a task, feature request, bugfix, or asks to work on something: YOU MUST NEVER DIRECTLY BEGIN WRITING CODE OR EDITING FILES. Instead, you MUST STOP and prompt the operator to choose routing:
-1. Enqueue to Cluster Work Queue ('rhizo enqueue queue:<project>:tasks')
-2. Dispatch Directly to Worker ('rhizo send <worker>')
-3. Execute Inline in Main Chat (only with explicit operator confirmation)
+Orchestrator Non-Implementation Invariant: When acting as an Orchestrator (or in any session with active cluster workers), you are a CONDUCTOR, NOT A CODER. When the operator presents a task, feature request, bugfix, or asks to work on something: YOU MUST NEVER DIRECTLY BEGIN WRITING CODE OR EDITING FILES (`write_to_file`, `replace_file_content`, `edit_file`).
+
+1. Pre-Authorized Directives & Active Fleet Fast-Path: When the operator instructs 'work on this with your workers', 'delegate this', 'dispatch to the swarm', or when active cluster workers exist in `rhizo who --all`, the Orchestrator MUST NOT stop to ask routing questions or wait for human confirmation. It must immediately break down work, provision strands (`vine strand`), and dispatch directly over Rhizo (`rhizo send --to <worker>`) or enqueue to work queues (`rhizo enqueue queue:<project>:tasks`).
+2. Mandatory ask_question Tool Discipline: If operator routing input is genuinely required (a true cold start with 0 cluster workers online), the orchestrator MUST invoke the interactive `ask_question` tool. Dumping numbered multiple-choice lists (1, 2, 3) in raw chat text is STRICTLY PROHIBITED.
+3. Project-Scoped Fleet Mandate & Anti-Hijacking Invariant: When online workers exist FOR THIS PROJECT (or in the unassigned pool: project 'unassigned'/'default' or tagged 'pool'/'float'/'shared'), dispatch or repurpose existing workers over Rhizo. Workers assigned to another named project are protected against cross-project poaching. If only foreign project workers are online, the orchestrator MUST NOT hijack them, but must instead bootstrap dedicated workers via prompt cards.
+4. Cold-Start Routing Options (via ask_question only):
+   - Enqueue to Cluster Work Queue (`rhizo enqueue queue:<project>:tasks`)
+   - Dispatch Directly to Worker (`rhizo send <worker>`)
+   - Execute Inline in Main Chat (only with explicit operator confirmation)
+Direct inline implementation is strictly prohibited unless the operator explicitly directs the orchestrator to code it inline in the main session.
 </CRITICAL>
 
 ### 9. Worker Autonomous Execution & Wakeup Discipline
@@ -313,7 +331,7 @@ command -v rift >/dev/null 2>&1 && rift prune >/dev/null 2>&1 || true
 ```
 <!-- END VINE GUIDE -->
 
-<!-- BEGIN GARDEN GUIDE [v2.5] -->
+<!-- BEGIN GARDEN GUIDE [v2.7] -->
 <!-- DO NOT EDIT DIRECTLY: Managed by `garden guide install` -->
 
 ## Garden Multi-Agent Swarm & Ceremony Guide
@@ -352,15 +370,19 @@ npm install -g @axiomantic/rhizo @axiomantic/vine @axiomantic/garden rift-snapsh
 * **Never Hijack or Kill Another Session's Active Listener**:
   When 'rhizo listen <agent>' fails with "Error: Listener already active for agent ... (PID X)", an agent MUST NEVER kill that PID, run 'kill <pid>', or pass '--force' unless the agent has verified in its own conversation history that this agent name was explicitly opened and running in THIS session. In 'rhizo who', 'status: STALE' only indicates that no messages have been routed recently; it does NOT mean the blocking listener process in another window is dead or orphaned. Killing listener PIDs from other windows corrupts the cluster, severs peer communication, and hijacks sovereign sessions.
 * **Intelligent Concierge Protocol (`garden: <prompt>`)**:
-  When an operator prompts with `garden: <prompt>`, the orchestrator acts as an intake concierge. It evaluates the request's scope and presents an interactive `ask_question` modal before writing any code:
-  - **Option 1 (Full Ceremony - RFE ➔ RFD ➔ RFC ➔ Swarm)**: For architectural shifts, new subsystems, major refactors, or cross-cutting migrations. Sows the idea as a persistent roadmap seed (`garden plant`), authors the Research/RFD, System Architecture/RFC, and Adversarial Audit documents, schedules monotonic locks and isolated Vine strands, and writes worker prompts to `/tmp/garden-<project>/`.
-  - **Option 2 (Direct Swarm Dispatch)**: For well-defined, self-contained features. Bypasses long design ceremonies and enqueues tasks straight to cluster queues (`rhizo enqueue`) or dispatches to active workers (`rhizo send`).
-  - **Option 3 (Inline Execution)**: For trivial 1-file fixes, documentation, or quick scratch tweaks executed directly in the main session.
+  When an operator prompts with `garden: <prompt>`, the orchestrator acts as an intake concierge:
+  - **Pre-Authorized Directives & Autonomous Dispatch**: When the operator instructs "work on this with your workers" (or similar delegation phrases), or whenever active cluster workers already exist on the Rhizo cluster (`rhizo who`), the Orchestrator MUST NOT stop to ask routing questions. It is fully pre-authorized to act! It must immediately break down work, provision isolated Vine strands (`vine new <task>`), and dispatch directly over Rhizo (`rhizo send`) or enqueue to work queues (`rhizo enqueue`).
+  - **Mandatory `ask_question` Tool Discipline**: If operator routing input is genuinely required (true cold start with 0 cluster workers online and no explicit delegation directive), the orchestrator MUST invoke the interactive `ask_question` tool. Dumping numbered multiple-choice lists (1, 2, 3) or raw option text directly into the chat stream is STRICTLY PROHIBITED.
+  - **Project-Scoped Fleet Mandate & Anti-Hijacking Invariant**: Workers assigned to a named project belong exclusively to that project. Cross-project worker poaching is strictly prohibited by default. When online workers exist FOR THIS PROJECT (or in the unassigned pool: project 'unassigned'/'default' or tagged 'pool'/'float'/'shared'), dispatch or repurpose them over Rhizo (`rhizo send` / `garden repurpose`). If only workers of OTHER projects are online and no unassigned workers are available, the orchestrator MUST NOT hijack foreign workers; it MUST bootstrap dedicated workers for the project via prompt cards (`garden prompts` / `garden launch`).
+  - **Routing Modes (when solicited via `ask_question`)**:
+    - **Option 1 (Full Ceremony - RFE ➔ RFD ➔ RFC ➔ Swarm)**: For architectural shifts, new subsystems, major refactors, or cross-cutting migrations. Sows the idea as a persistent roadmap seed (`garden plant`), authors the Research/RFD, System Architecture/RFC, and Adversarial Audit documents, schedules monotonic locks and isolated Vine strands, and writes worker prompts to `/tmp/garden-<project>/`.
+    - **Option 2 (Direct Swarm Dispatch)**: For well-defined, self-contained features. Bypasses long design ceremonies and enqueues tasks straight to cluster queues (`rhizo enqueue`) or dispatches to active workers (`rhizo send`).
+    - **Option 3 (Inline Execution)**: For trivial 1-file fixes, documentation, or quick scratch tweaks executed directly in the main session.
 * **Sovereign Sessions & Subagent Prohibition**:
   Swarm workers operate strictly in dedicated, independent interactive coding sessions (separate terminal tabs or IDE windows for Claude Code, OpenCode, Antigravity, Pi, Cursor) bootstrapped from Garden prompt cards (`garden prompts` / `garden launch`) wrapped in 10 backticks. Harness-internal subagents (e.g. Antigravity's `invoke_subagent`, Claude Code's `Task`, OpenCode subtasks, Cursor sub-composers) are STRICTLY PROHIBITED from acting as cluster workers across all harnesses. Subagents are ephemeral single-turn jobs; they cannot maintain continuous background listeners, survive across task boundaries, or preserve clean workspace isolation, and they cause severe context poisoning by dumping full execution traces into the orchestrator prompt. Terminal multiplexers (tmux) are neither required nor supported; sessions are always sovereign and prompt-bootstrapped.
 * **Active Swarm Fast-Path & Intake Protocol**:
-  Before asking ANY intake questions or configuring new personas, the designated orchestrator MUST inspect the cluster via `rhizo who --json`. If active workers are already registered and healthy on the Rhizo cluster, the orchestrator MUST skip swarm setup, latch directly onto the existing workers, and proceed immediately to task planning and dispatch. Note: This fast-path applies ONLY to a session already designated as the orchestrator; fresh unbootstrapped sessions must never latch onto `<project>-orchestrator`.
-  Only during cold starts (zero active cluster workers) does the orchestrator conduct intake (`garden` / `choose-personas`). Because the current coding harness is auto-detected from the session environment (ANTIGRAVITY_APP_DIR, CLAUDE_CODE, OPENCODE_SESSION_ID, CODEX_SESSION_ID, PI_SESSION_ID), intake consists of at most a SINGLE concise question: Execution mode & swarm shape in the detected harness (e.g., "Balanced Triad in <Detected Harness>", "Focused Duo in <Detected Harness>", "Single-Agent Inline").
+  Before asking ANY intake questions or configuring new personas, the designated orchestrator MUST inspect the cluster via `rhizo who --all --json`. If active workers are already registered and healthy on the Rhizo cluster FOR THIS PROJECT (or in the unassigned pool), the orchestrator MUST skip swarm setup, latch directly onto the existing workers, and proceed immediately to task planning and dispatch. Note: This fast-path applies ONLY to workers belonging to the same project or unassigned pool; workers belonging to other named projects are protected against cross-project poaching. Fresh unbootstrapped sessions must never latch onto `<project>-orchestrator`.
+  Only during cold starts (zero active cluster workers for this project) does the orchestrator conduct intake (`garden` / `choose-personas`) and generate prompt cards (`garden prompts`). Because the current coding harness is auto-detected from the session environment (ANTIGRAVITY_APP_DIR, CLAUDE_CODE, OPENCODE_SESSION_ID, CODEX_SESSION_ID, PI_SESSION_ID), intake consists of at most a SINGLE concise question: Execution mode & swarm shape in the detected harness (e.g., "Balanced Triad in <Detected Harness>", "Focused Duo in <Detected Harness>", "Single-Agent Inline").
   Standalone "foundation model pairing" questions are STRICTLY PROHIBITED: swarm workers are sovereign interactive sessions and inherit whatever foundation model is active in that harness session (e.g., Gemini in Antigravity, Claude in Claude Code). Prompt cards specify `Model: Session Default (active in this window)`. The orchestrator must NEVER offer or present internal subagents as an option for workers.
 * **Prompt-Bootstrapped Sessions**:
   Swarm workers operate in dedicated interactive coding sessions (Claude Code, OpenCode, Antigravity, Pi, Cursor) bootstrapped from Garden prompt cards (`garden prompts` / `garden launch`). Prompt cards are automatically written to `/tmp/garden-<project>/<worker>.md` instead of dumped inline into chat, preserving context window tokens and eliminating chat rendering artifacts. Never detach unmanaged background processes with `&` or redirect output.
@@ -369,7 +391,7 @@ npm install -g @axiomantic/rhizo @axiomantic/vine @axiomantic/garden rift-snapsh
 * **Delegation Precedence**:
   When instructed to "delegate", "assign", or "dispatch" work, the orchestrator MUST route tasks to active cluster workers via Rhizo (`rhizo send`, `rhizo enqueue`, `rhizo task assign/claim`). Harness-internal subagents (e.g. `invoke_subagent`, `Task`, `Agent`) must NEVER be used to fulfill cluster swarm roles; they are restricted solely to transient, single-turn ad-hoc inspections in non-swarm solo chats when the operator explicitly specifies the word "subagent".
 * **Orchestrator Non-Implementation Invariant**:
-  When acting as an Orchestrator (or in any session with active cluster workers), the session is a conductor, not a coder. When the operator presents a task, feature request, bugfix, or asks to work on something, the orchestrator MUST NEVER directly write code or edit files. It MUST STOP and prompt the operator to choose routing (Option 1: Full Ceremony RFE ➔ RFD ➔ RFC ➔ Swarm, Option 2: Direct Swarm Dispatch, or Option 3: Inline Execution).
+  When acting as an Orchestrator (or in any session with active cluster workers), the session is a conductor, not a coder. When the operator presents a task, feature request, bugfix, or asks to work on something, the orchestrator MUST NEVER directly write code or edit files. If active cluster workers exist or delegation is commanded, the orchestrator MUST autonomously break down the task, provision isolated Vine strands (`vine new <task>`), and dispatch work to cluster workers via Rhizo (`rhizo send` / `rhizo enqueue`). It is strictly forbidden from stalling execution by asking routing questions when workers are available. Only during a true cold start with 0 cluster workers may it solicit routing via the interactive `ask_question` tool.
 * **Post-Compaction Ceremony Restoration**:
   Whenever context compaction occurs in a session that used Garden, Rhizo, or Vine, the compaction summary MUST include an explicit directive commanding the resurrected agent to re-read the active coordination skills (`garden`, `orchestrate-swarm`, `rhizo`, `vine`) before executing any further tools. Upon waking from compaction, the agent MUST immediately re-read those skills to restore ceremony, gate protocols, and listener discipline. This directive must remain intact across all future compactions.
 * **Worker Autonomous Execution Invariant**:
@@ -473,6 +495,8 @@ Agents and human engineers operating in this repository must consult the dedicat
 | **Build Cache Normalization** | [`docs/cache_normalization.md`](docs/cache_normalization.md) | Non-destructive `.envrc` chaining, Ccache, Cargo target, and uv clone links. |
 | **CLI Reference Manual** | [`docs/cli_reference.md`](docs/cli_reference.md) | Complete catalog of Vine commands (`new`, `status`, `collisions`, `gate`, `submit`, `audit`, `weave`, `prune`). |
 | **Configuration Architecture** | [`docs/configuration.md`](docs/configuration.md) | Project-level configuration, workspace directories, and test runner configurations. |
+
+
 
 
 
