@@ -80,7 +80,7 @@ jobs:
       - name: Build Vine binary
         run: |
           mkdir -p bin
-          nim c -d:release -o:bin/vine src/vine.nim
+          nim c -d:debug --stackTrace:on --lineTrace:on -o:bin/vine src/vine.nim
 
       - name: Run automated test suite
         run: |
