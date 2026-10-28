@@ -694,15 +694,18 @@ proc getMergeTreeSha*(strandDir: string, baseRef: string, branch: string = "HEAD
   return ""
 
 proc gitAutoCommitIfDirty*(dir: string, msg: string): tuple[committed: bool, sha: string, error: string] =
-  let (statusOut, statusCode, _, _) = execCmdExWithTimeout("git -C " & quoteShell(dir) & " status --porcelain", 15.0)
+  let (statusOut, statusCode, _, _) = execCmdExWithTimeout("git status --porcelain", 15.0, workingDir = dir)
   if statusCode == 0 and statusOut.strip().len > 0:
-    let cmd = "git -C " & quoteShell(dir) & " add -A && git -C " & quoteShell(dir) & " commit -m " & quoteShell(msg) & " && git -C " & quoteShell(dir) & " rev-parse --short HEAD"
-    let (outp, code, _, _) = execCmdExWithTimeout(cmd, 30.0)
-    if code != 0:
-      return (false, "", outp)
-    let lines = outp.strip().splitLines()
-    let sha = if lines.len > 0: lines[^1].strip() else: ""
-    return (true, sha, "")
+    let (addOut, addCode, _, _) = execCmdExWithTimeout("git add -A", 30.0, workingDir = dir)
+    if addCode != 0:
+      return (false, "", addOut)
+    let (cOut, cCode, _, _) = execCmdExWithTimeout("git commit -m " & quoteShell(msg), 30.0, workingDir = dir)
+    if cCode != 0:
+      return (false, "", cOut)
+    let (revOut, revCode, _, _) = execCmdExWithTimeout("git rev-parse --short HEAD", 15.0, workingDir = dir)
+    if revCode != 0:
+      return (false, "", revOut)
+    return (true, revOut.strip(), "")
   return (false, "", "")
 
 proc doStrandSubmit*(
