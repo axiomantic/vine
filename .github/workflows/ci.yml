@@ -83,8 +83,6 @@ jobs:
           nim c -d:release -o:bin/vine src/vine.nim
 
       - name: Run automated test suite
-        env:
-          VINE_WORKSPACES_DIR: ${{ runner.temp }}/vine_workspaces
         run: |
           python -m pytest -v tests/test_vine.py
 
