@@ -67,6 +67,12 @@ proc doStrandNew*(
   orchestratorParam: string = "",
   createdByParam: string = ""
 ): tuple[manifest: JsonNode, exitCode: int] =
+  if taskId.len == 0 or taskId.startsWith("-"):
+    var errObj = newJObject()
+    errObj["status"] = %"error"
+    errObj["message"] = %("Invalid task ID: '" & taskId & "'. Task ID cannot be empty or start with '-'.")
+    return (errObj, 1)
+
   let repoDir = if repoDirParam.len > 0: repoDirParam.normalizedPath else: getRepoRoot()
   let projectName = repoDir.splitPath.tail
   let cfg = loadVineConfig(repoDir / "vine.toml")
