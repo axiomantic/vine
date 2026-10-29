@@ -27,7 +27,7 @@ def run_vine(*args, cwd=None, env=None):
     return proc.returncode, proc.stdout, proc.stderr
 
 PACKAGE_JSON = Path(__file__).parent.parent / "package.json"
-CANONICAL_VERSION = json.loads(PACKAGE_JSON.read_text()).get("version", "0.1.6")
+CANONICAL_VERSION = json.loads(PACKAGE_JSON.read_text(encoding="utf-8")).get("version", "0.1.6")
 
 def test_vine_version():
     code, out, err = run_vine("--version")
@@ -35,8 +35,8 @@ def test_vine_version():
     assert f"vine {CANONICAL_VERSION}" in out
 
 def test_vine_skill_reconciliation():
-    root_skill = (Path(__file__).parent.parent / "SKILL.md").read_text()
-    pkg_skill = (Path(__file__).parent.parent / "skills" / "vine" / "SKILL.md").read_text()
+    root_skill = (Path(__file__).parent.parent / "SKILL.md").read_text(encoding="utf-8")
+    pkg_skill = (Path(__file__).parent.parent / "skills" / "vine" / "SKILL.md").read_text(encoding="utf-8")
     assert root_skill == pkg_skill, "Root SKILL.md must match skills/vine/SKILL.md"
     assert "Three-Key Gate" in root_skill
     assert "The Worker is NOT the Auditor" in root_skill
