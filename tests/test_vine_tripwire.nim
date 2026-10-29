@@ -309,3 +309,10 @@ suite "Vine Native Tripwire Git Passthrough Suite":
       let (wtAfter, _) = execCmdEx("git -C " & quoteShell(repo) & " worktree list")
       check not wtAfter.contains(strandPath)
 
+  test "Reconciled SKILL.md matches skills/vine/SKILL.md":
+    let rootSkill = readFile(getCurrentDir() / "SKILL.md")
+    let pkgSkill = readFile(getCurrentDir() / "skills" / "vine" / "SKILL.md")
+    check rootSkill == pkgSkill
+    check rootSkill.contains("Three-Key Gate")
+    check rootSkill.contains("The Worker is NOT the Auditor")
+

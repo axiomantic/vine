@@ -34,6 +34,13 @@ def test_vine_version():
     assert code == 0
     assert f"vine {CANONICAL_VERSION}" in out
 
+def test_vine_skill_reconciliation():
+    root_skill = (Path(__file__).parent.parent / "SKILL.md").read_text()
+    pkg_skill = (Path(__file__).parent.parent / "skills" / "vine" / "SKILL.md").read_text()
+    assert root_skill == pkg_skill, "Root SKILL.md must match skills/vine/SKILL.md"
+    assert "Three-Key Gate" in root_skill
+    assert "The Worker is NOT the Auditor" in root_skill
+
 def test_vine_guide_lifecycle():
     with tempfile.TemporaryDirectory() as tmpdir:
         target = Path(tmpdir) / "AGENTS.md"
