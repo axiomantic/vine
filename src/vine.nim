@@ -4,7 +4,7 @@
 import std/[os, strutils, json, sequtils]
 import strand, gate, weave, guide, config, update, notify
 
-const Version = "0.2.16"
+const Version = "0.2.17"
 
 proc printHelp() =
   echo "Vine v" & Version & " — Sub-Second Rift Workspaces & Zero-Mirage Git Weaving"
@@ -29,9 +29,156 @@ proc printHelp() =
   echo "  --version, -v    Print version"
   echo "  --help, -h       Print help"
 
+proc hasHelpFlag*(args: seq[string]): bool =
+  for a in args:
+    if a == "--":
+      return false
+    if a in ["--help", "-h", "help"]:
+      return true
+  return false
+
+proc printSubcommandHelp*(subcmd: string, args: seq[string] = @[]): bool =
+  let cmd = subcmd.toLowerAscii
+  case cmd
+  of "new", "create", "strand":
+    if args.len > 0 and args[0].toLowerAscii in ["new", "create"]:
+      echo "Usage: vine strand new <task_id> [--repo <path>] [--branch <name>] [--base <ref>] [--parent <ref>] [--rift] [--worktree] [--orchestrator <name>] [--created-by <name>]"
+    else:
+      echo "Usage: vine new <task_id> [--repo <path>] [--branch <name>] [--base <ref>] [--parent <ref>] [--rift] [--worktree] [--orchestrator <name>] [--created-by <name>]"
+    echo ""
+    echo "Options:"
+    echo "  --repo <path>         Path to canonical repository"
+    echo "  --branch <name>       Branch name for strand"
+    echo "  --base <ref>          Base Git reference (default: HEAD)"
+    echo "  --parent <ref>        Explicit parent branch"
+    echo "  --rift                Force Rift copy-on-write cloning"
+    echo "  --worktree            Force standard Git worktree creation"
+    echo "  --orchestrator <name> Orchestrator agent name"
+    echo "  --created-by <name>   Worker / creator agent name"
+    return true
+  of "list", "ls":
+    echo "Usage: vine list [--repo <path>] [--all]"
+    echo ""
+    echo "Options:"
+    echo "  --repo <path>         Target repository directory"
+    echo "  --all, -a             Include inactive/pruned workspaces"
+    return true
+  of "status":
+    echo "Usage: vine status [task_id|path] [--dir <path>] [--json]"
+    echo ""
+    echo "Options:"
+    echo "  --dir <path>          Path to strand directory"
+    echo "  --json                Output status as JSON"
+    return true
+  of "collisions", "conflicts":
+    echo "Usage: vine collisions [--repo <path>] [--json]"
+    echo ""
+    echo "Options:"
+    echo "  --repo <path>         Target repository directory"
+    echo "  --json                Output collisions as JSON"
+    return true
+  of "gate", "check":
+    echo "Usage: vine gate [branch] [--base <ref>] [--dir <path>] [--submit] [--author <name>] [--timeout <sec>] [--skip-tests] [--allow-no-tests] [--allow-test-only] [--allow-no-changelog] [--allow-defeat-devices] [--ensure-unreleased] [--test-command <cmd>] [--json] [-- <command...>]"
+    echo ""
+    echo "Options:"
+    echo "  --base <ref>          Base reference to compare against (default: HEAD)"
+    echo "  --dir <path>          Path to strand directory"
+    echo "  --submit              Submit strand for Key 3 audit upon passing Keys 1 & 2"
+    echo "  --author <name>       Author of changes"
+    echo "  --timeout <sec>       Semantic test execution timeout"
+    echo "  --skip-tests          Skip semantic test suite"
+    echo "  --allow-no-tests      Allow passing gate without tests"
+    echo "  --allow-test-only     Allow test-only changes"
+    echo "  --allow-no-changelog  Bypass mandatory changelog update check"
+    echo "  --allow-defeat-devices Bypass defeat device detection"
+    echo "  --ensure-unreleased   Automatically ensure Unreleased section in changelog"
+    echo "  --test-command <cmd>  Explicit command to execute tests"
+    echo "  --json                Output gate results as JSON"
+    return true
+  of "submit":
+    echo "Usage: vine submit [task_id|path] [--dir <path>] [--author <name>] [--commit <msg>] [--listen] [--timeout <sec>] [--allow-no-tests] [--allow-test-only] [--allow-no-changelog] [--allow-defeat-devices] [--test-command <cmd>] [--no-notify] [--json]"
+    echo ""
+    echo "Options:"
+    echo "  --dir <path>          Path to strand directory"
+    echo "  --author <name>       Author claiming submission"
+    echo "  --commit <msg>        Commit message for dirty changes"
+    echo "  --listen              Arm single-shot rhizo listener after submission"
+    echo "  --timeout <sec>       Test timeout in seconds"
+    echo "  --no-notify           Silence Redis notifications"
+    echo "  --json                Output submission result as JSON"
+    return true
+  of "audit":
+    echo "Usage: vine audit <approve|reject|status> [task_id|path] [--auditor <name>] [--reason <text>] [--notes <text>] [--findings <file>] [--dir <path>] [--no-notify] [--json]"
+    echo ""
+    echo "Options:"
+    echo "  --auditor <name>      Name of independent auditor"
+    echo "  --reason <text>       Rejection reason"
+    echo "  --notes <text>        Approval or review notes"
+    echo "  --findings <file>     Path to audit findings file"
+    echo "  --dir <path>          Path to strand directory"
+    echo "  --no-notify           Silence Redis notifications"
+    echo "  --json                Output audit result as JSON"
+    return true
+  of "sync":
+    echo "Usage: vine sync [--dir <path>] [--base <ref>] [--rebase]"
+    echo ""
+    echo "Options:"
+    echo "  --dir <path>          Path to strand directory"
+    echo "  --base <ref>          Base reference (default: HEAD)"
+    echo "  --rebase              Rebase on top of base reference"
+    return true
+  of "weave":
+    echo "Usage: vine weave [branch] [--base <ref>] [--dir <path>] [--force] [--allow-no-tests] [--allow-no-changelog] [--allow-unaudited] [--no-notify]"
+    echo ""
+    echo "Options:"
+    echo "  --base <ref>          Target base branch (default: main/master)"
+    echo "  --dir <path>          Path to strand directory"
+    echo "  --force               Force weave even if checks fail"
+    echo "  --allow-unaudited     Bypass Key 3 audit approval requirement"
+    echo "  --no-notify           Silence Redis notifications"
+    return true
+  of "changelog":
+    echo "Usage: vine changelog [entry] [--dir <path>] [--section <sec>] [--ensure-unreleased] [--check]"
+    echo ""
+    echo "Options:"
+    echo "  --dir <path>          Path to project or strand directory"
+    echo "  --section <sec>       Target section (e.g. Added, Fixed, Changed)"
+    echo "  --ensure-unreleased   Ensure Unreleased header exists"
+    echo "  --check               Verify changelog has entries under Unreleased"
+    return true
+  of "prune":
+    echo "Usage: vine prune [--repo <path>] [--max-age <hours>] [--apply]"
+    echo ""
+    echo "Options:"
+    echo "  --repo <path>         Target repository directory"
+    echo "  --max-age <hours>     Maximum workspace age before pruning (default: 48)"
+    echo "  --apply               Apply pruning actions (default is dry-run)"
+    return true
+  of "update":
+    echo "Usage: vine update [--check] [--apply] [--skip <pkg@ver>] [--disable] [--enable] [--json]"
+    echo ""
+    echo "Options:"
+    echo "  --check, -c           Force a fresh check for updates"
+    echo "  --apply, -a           Install latest triad packages via npm"
+    echo "  --skip <pkg@ver>      Skip notification for specific version"
+    echo "  --disable, -d         Disable update notifications"
+    echo "  --enable, -e          Enable update notifications"
+    echo "  --json                Output status as JSON"
+    return true
+  of "guide":
+    echo "Usage: vine guide <install|uninstall|check> [path]"
+    return true
+  of "config":
+    echo "Usage: vine config <init|show> [path]"
+    return true
+  else:
+    return false
+
 proc main() =
   let args = commandLineParams()
   if args.len == 0 or args[0] in ["--help", "-h", "help"]:
+    if args.len > 1 and printSubcommandHelp(args[1], args[2..^1]):
+      quit(0)
     printHelp()
     quit(0)
 
@@ -40,6 +187,12 @@ proc main() =
     quit(0)
 
   let cmd = args[0].toLowerAscii
+  if hasHelpFlag(args[1..^1]):
+    if printSubcommandHelp(cmd, args[1..^1]):
+      quit(0)
+    printHelp()
+    quit(0)
+
   case cmd
   of "new", "create", "strand":
     var taskId = ""
@@ -66,6 +219,11 @@ proc main() =
         quit(1)
       taskId = args[1]
       i = 2
+
+    if taskId.len == 0 or taskId.startsWith("-"):
+      stderr.writeLine("Error: Invalid task ID: '" & taskId & "'. Task ID cannot be empty or start with '-'.")
+      stderr.writeLine("Usage: vine new <task_id> [--repo <path>] [--branch <name>] [--base <ref>] [--parent <ref>] [--rift] [--worktree] [--orchestrator <name>] [--created-by <name>]")
+      quit(1)
 
     while i < args.len:
       let a = args[i]

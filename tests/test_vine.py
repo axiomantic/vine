@@ -27,12 +27,19 @@ def run_vine(*args, cwd=None, env=None):
     return proc.returncode, proc.stdout, proc.stderr
 
 PACKAGE_JSON = Path(__file__).parent.parent / "package.json"
-CANONICAL_VERSION = json.loads(PACKAGE_JSON.read_text()).get("version", "0.1.6")
+CANONICAL_VERSION = json.loads(PACKAGE_JSON.read_text(encoding="utf-8")).get("version", "0.1.6")
 
 def test_vine_version():
     code, out, err = run_vine("--version")
     assert code == 0
     assert f"vine {CANONICAL_VERSION}" in out
+
+def test_vine_skill_reconciliation():
+    root_skill = (Path(__file__).parent.parent / "SKILL.md").read_text(encoding="utf-8")
+    pkg_skill = (Path(__file__).parent.parent / "skills" / "vine" / "SKILL.md").read_text(encoding="utf-8")
+    assert root_skill == pkg_skill, "Root SKILL.md must match skills/vine/SKILL.md"
+    assert "Three-Key Gate" in root_skill
+    assert "The Worker is NOT the Auditor" in root_skill
 
 def test_vine_guide_lifecycle():
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -1145,6 +1152,57 @@ def test_vine_atomic_submit_commit():
                 subprocess.run(["git", "-C", repo_dir, "worktree", "remove", "--force", strand_path], capture_output=True)
                 subprocess.run(["git", "-C", repo_dir, "worktree", "prune"], capture_output=True)
                 shutil.rmtree(os.path.dirname(strand_path), ignore_errors=True)
+
+
+def test_vine_subcommand_help_and_flag_guards():
+    """Verify that --help/-h on subcommands prints usage and NEVER creates workspaces or branches."""
+    with tempfile.TemporaryDirectory() as repo_dir:
+        # Initialize repo
+        subprocess.run(["git", "init", repo_dir], check=True, capture_output=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.name", "Tester"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.email", "tester@test.com"], check=True)
+        with open(os.path.join(repo_dir, "README.md"), "w") as f:
+            f.write("# Test Repo\n")
+        subprocess.run(["git", "-C", repo_dir, "add", "."], check=True)
+        subprocess.run(["git", "-C", repo_dir, "commit", "-m", "initial commit"], check=True)
+
+        # 1. Test 'vine new --help'
+        code, out, err = run_vine("new", "--help")
+        assert code == 0, f"Expected 0 from 'vine new --help', got {code}: {err}"
+        assert "Usage: vine new <task_id>" in out
+        assert "--repo <path>" in out
+
+        # 2. Test 'vine new -h'
+        code, out, err = run_vine("new", "-h")
+        assert code == 0, f"Expected 0 from 'vine new -h', got {code}: {err}"
+        assert "Usage: vine new <task_id>" in out
+
+        # 3. Test 'vine strand new --help'
+        code, out, err = run_vine("strand", "new", "--help")
+        assert code == 0, f"Expected 0 from 'vine strand new --help', got {code}: {err}"
+        assert "Usage: vine strand new <task_id>" in out
+
+        # 4. Verify no branch named strand/--help or strand/-h exists in the repo
+        p = subprocess.run(["git", "-C", repo_dir, "branch", "--list", "*help*"], capture_output=True, text=True)
+        assert p.stdout.strip() == "", f"Accidental branch created: {p.stdout}"
+
+        # 5. Test other subcommands with --help
+        for subcmd in ["gate", "submit", "audit", "sync", "weave", "changelog", "prune", "update", "collisions"]:
+            c, o, e = run_vine(subcmd, "--help")
+            assert c == 0, f"Expected 0 from 'vine {subcmd} --help', got {c}: {e}"
+            assert f"Usage: vine {subcmd}" in o, f"Usage missing in output for 'vine {subcmd} --help': {o}"
+
+        # 6. Test 'vine help new'
+        code, out, err = run_vine("help", "new")
+        assert code == 0
+        assert "Usage: vine new <task_id>" in out
+
+        # 7. Test flag-as-taskId guard: 'vine new --invalid-flag' must fail and not create strand
+        code, out, err = run_vine("new", "--invalid-flag", "--repo", repo_dir)
+        assert code == 1, f"Expected exit 1 for invalid flag as taskId, got {code}"
+        assert "Invalid task ID: '--invalid-flag'" in err
+        p2 = subprocess.run(["git", "-C", repo_dir, "branch", "--list", "*invalid*"], capture_output=True, text=True)
+        assert p2.stdout.strip() == "", f"Accidental branch created: {p2.stdout}"
 
 
 if __name__ == "__main__":

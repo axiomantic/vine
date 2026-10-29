@@ -22,6 +22,15 @@ proc unquote*(s: string): string =
       return t[1 .. ^2]
   return t
 
+proc canonicalizePath*(p: string): string =
+  if p.len == 0: return ""
+  try:
+    if dirExists(p) or fileExists(p):
+      return expandFilename(p).normalizedPath
+  except CatchableError:
+    discard
+  return p.normalizedPath
+
 proc parseStringList*(val: string): seq[string] =
   var s = val.strip()
   if s.startsWith("[") and s.endsWith("]"):

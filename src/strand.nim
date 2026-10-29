@@ -67,6 +67,12 @@ proc doStrandNew*(
   orchestratorParam: string = "",
   createdByParam: string = ""
 ): tuple[manifest: JsonNode, exitCode: int] =
+  if taskId.len == 0 or taskId.startsWith("-"):
+    var errObj = newJObject()
+    errObj["status"] = %"error"
+    errObj["message"] = %("Invalid task ID: '" & taskId & "'. Task ID cannot be empty or start with '-'.")
+    return (errObj, 1)
+
   let repoDir = if repoDirParam.len > 0: repoDirParam.normalizedPath else: getRepoRoot()
   let projectName = repoDir.splitPath.tail
   let cfg = loadVineConfig(repoDir / "vine.toml")
@@ -203,10 +209,11 @@ proc doStrandNew*(
       discard pruneStrandRedis(taskId)
 
   # Register strand state in Redis
+  let canonicalStrandDir = canonicalizePath(strandDir)
   discard createStrandRedis(
     strandId = taskId,
     project = projectName,
-    strandPath = strandDir,
+    strandPath = canonicalStrandDir,
     branch = branch,
     baseBranch = baseBranch,
     baseCommit = baseCommit,
@@ -234,7 +241,7 @@ proc doStrandNew*(
   res["status"] = %"created"
   res["task_id"] = %taskId
   res["project"] = %projectName
-  res["strand_path"] = %strandDir
+  res["strand_path"] = %canonicalStrandDir
   res["branch"] = %branch
   res["parent_branch"] = %baseBranch
   res["base_branch"] = %baseBranch
@@ -440,11 +447,17 @@ proc findStrandManifest*(query: string = "", repoDirParam: string = ""): JsonNod
       return s
 
     if dirExists(q) or fileExists(q):
-      let normPath = if dirExists(q): q.normalizedPath else: q.parentDir().normalizedPath
-      let byPath = resolveStrandByPathRedis(normPath, machineId)
+      let canPath = canonicalizePath(if dirExists(q): q else: q.parentDir())
+      let byPath = resolveStrandByPathRedis(canPath, machineId)
       if byPath != nil and byPath.kind == JObject and (byPath.hasKey("id") or byPath.hasKey("task_id")):
         if not byPath.hasKey("status") and byPath.hasKey("state"): byPath["status"] = byPath["state"]
         return byPath
+      let normPath = if dirExists(q): q.normalizedPath else: q.parentDir().normalizedPath
+      if normPath != canPath:
+        let byNorm = resolveStrandByPathRedis(normPath, machineId)
+        if byNorm != nil and byNorm.kind == JObject and (byNorm.hasKey("id") or byNorm.hasKey("task_id")):
+          if not byNorm.hasKey("status") and byNorm.hasKey("state"): byNorm["status"] = byNorm["state"]
+          return byNorm
 
     # Legacy on-disk check (for transition migration)
     if dirExists(q) and fileExists(q / ".vine.json"):

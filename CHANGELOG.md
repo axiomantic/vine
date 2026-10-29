@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.17] - 2026-10-29
+
+### Fixed
+- **Subcommand `--help` Interception & Accidental Workspace Guard (`src/vine.nim`, `src/strand.nim`, `tests/test_vine.py`)**:
+  - Added `hasHelpFlag` and `printSubcommandHelp` to intercept `--help` and `-h` across all subcommands (`new`, `gate`, `submit`, `audit`, `sync`, `weave`, etc.) early with exit code 0.
+  - Hardened `doStrandNew` and `main()` argument parsing to strictly reject task IDs starting with `-`, preventing flags from being captured as positional task IDs and creating accidental workspaces or branches (e.g. `strand/--help`).
+  - Added automated test `test_vine_subcommand_help_and_flag_guards` covering subcommand help outputs and flag rejection.
+- **Canonical Path Resolution for Symlinks and Windows Drive Letters (`src/config.nim`, `src/strand.nim`)**:
+  - Exported `canonicalizePath(p: string)` via `expandFilename(p).normalizedPath` in `src/config.nim`.
+  - Canonicalized `strand_path` in `doStrandNew` before persisting to Redis and returning in JSON result.
+  - Enhanced `findStrandManifest` to index and match against canonical realpaths in addition to raw normalized paths.
+
+### Documentation
+- **Skill Reconciliation (`SKILL.md`)**:
+  - Reconciled root `SKILL.md` with `skills/vine/SKILL.md` to ensure identical Three-Key Gate, Rift copy-on-write workspace, and turn-end audit instructions across global and repository skill definitions.
+
 ## [0.2.16] - 2026-10-28
 
 ### Fixed
