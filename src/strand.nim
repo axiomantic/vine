@@ -162,20 +162,50 @@ proc doStrandNew*(
 
   # Non-Destructive .envrc Setup
   let envrcPath = strandDir / ".envrc"
-  var envrcLines: seq[string] = @[]
-  if fileExists(repoDir / ".envrc"):
-    envrcLines.add("[ -f " & quoteShell(repoDir / ".envrc") & " ] && source_env " & quoteShell(repoDir / ".envrc"))
-  envrcLines.add("export PROJECT_ROOT=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"")
-  envrcLines.add("export CACHE_ROOT=\"${XDG_CACHE_HOME:-$HOME/.cache}/dev-workspaces/$(basename \"$PROJECT_ROOT\")\"")
-  envrcLines.add("mkdir -p \"$CACHE_ROOT\"")
-  envrcLines.add("if command -v ccache >/dev/null 2>&1; then")
-  envrcLines.add("    export CCACHE_BASEDIR=\"$(dirname \"$PROJECT_ROOT\")\"")
-  envrcLines.add("    export CCACHE_NOHASHDIR=1")
-  envrcLines.add("fi")
-  envrcLines.add("[ -f \"$PROJECT_ROOT/Cargo.toml\" ] && export CARGO_TARGET_DIR=\"$CACHE_ROOT/cargo-target\"")
-  envrcLines.add("export UV_LINK_MODE=\"clone\"")
-  envrcLines.add("export NIMCACHE=\"$CACHE_ROOT/nimcache\"")
-  writeFile(envrcPath, envrcLines.join("\n") & "\n")
+  let (trackOut, trackCode) = execCmdEx("git -C " & quoteShell(repoDir) & " ls-files --error-unmatch .envrc")
+  let isEnvrcTracked = (trackCode == 0)
+
+  if isEnvrcTracked:
+    # If .envrc is tracked in the canonical repository, do not overwrite it with synthesized wrapper.
+    # Ensure any existing source_env self-reference inside an already tracked .envrc is guarded if present.
+    discard
+  else:
+    var envrcLines: seq[string] = @[]
+    if fileExists(repoDir / ".envrc"):
+      # Guard source_env against self-recursion: never source self if strand .envrc is identical or woven into repoDir
+      envrcLines.add("[ -f " & quoteShell(repoDir / ".envrc") & " ] && [ ! \"$PWD/.envrc\" -ef " & quoteShell(repoDir / ".envrc") & " ] && source_env " & quoteShell(repoDir / ".envrc"))
+    envrcLines.add("export PROJECT_ROOT=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"")
+    envrcLines.add("export CACHE_ROOT=\"${XDG_CACHE_HOME:-$HOME/.cache}/dev-workspaces/$(basename \"$PROJECT_ROOT\")\"")
+    envrcLines.add("mkdir -p \"$CACHE_ROOT\"")
+    envrcLines.add("if command -v ccache >/dev/null 2>&1; then")
+    envrcLines.add("    export CCACHE_BASEDIR=\"$(dirname \"$PROJECT_ROOT\")\"")
+    envrcLines.add("    export CCACHE_NOHASHDIR=1")
+    envrcLines.add("fi")
+    envrcLines.add("[ -f \"$PROJECT_ROOT/Cargo.toml\" ] && export CARGO_TARGET_DIR=\"$CACHE_ROOT/cargo-target\"")
+    envrcLines.add("export UV_LINK_MODE=\"clone\"")
+    envrcLines.add("export NIMCACHE=\"$CACHE_ROOT/nimcache\"")
+    writeFile(envrcPath, envrcLines.join("\n") & "\n")
+
+    # Add .envrc to strand-local git exclude so 'git add -A' inside the strand never stages synthesized .envrc
+    let (exOut, exCode) = execCmdEx("git -C " & quoteShell(strandDir) & " rev-parse --git-path info/exclude")
+    if exCode == 0 and exOut.strip().len > 0:
+      let excludeFile = if isAbsolute(exOut.strip()): exOut.strip() else: (strandDir / exOut.strip())
+      try:
+        var currentExclude = if fileExists(excludeFile): readFile(excludeFile) else: ""
+        var hasEnvrc = false
+        for line in currentExclude.splitLines():
+          if line.strip() == ".envrc":
+            hasEnvrc = true
+            break
+        if not hasEnvrc:
+          if currentExclude.len > 0 and not currentExclude.endsWith("\n"):
+            currentExclude.add("\n")
+          currentExclude.add(".envrc\n")
+          createDir(parentDir(excludeFile))
+          writeFile(excludeFile, currentExclude)
+      except CatchableError:
+        discard
+
   if findExe("direnv").len > 0:
     try:
       discard execCmdEx("direnv allow " & quoteShell(strandDir))

@@ -348,7 +348,7 @@ def test_vine_gate_catches_semantic_compiler_failure():
                 shutil.rmtree(os.path.dirname(strand_path), ignore_errors=True)
 
 def test_vine_strand_envrc_generation():
-    """Verify Vine generates a non-destructive polyglot .envrc that chains parent .envrc."""
+    """Verify Vine generates a non-destructive polyglot .envrc that chains parent .envrc with recursion guard."""
     with tempfile.TemporaryDirectory(prefix="vine_envrc_") as repo_dir:
         subprocess.run(["git", "init", "-b", "main", "-q", repo_dir], check=True)
         subprocess.run(["git", "-C", repo_dir, "config", "user.email", "agent@vine.mesh"], check=True)
@@ -374,6 +374,7 @@ def test_vine_strand_envrc_generation():
             assert os.path.isfile(envrc_file), ".envrc must be generated in strand root"
             content = open(envrc_file).read()
             assert "source_env" in content, "Must source parent repository .envrc"
+            assert '! "$PWD/.envrc" -ef' in content, "Must guard source_env with inode equality check"
             assert "PROJECT_ROOT=" in content
             assert "CACHE_ROOT=" in content
             assert "CCACHE_BASEDIR=" in content
@@ -381,6 +382,48 @@ def test_vine_strand_envrc_generation():
             assert "CARGO_TARGET_DIR=" in content
             assert 'UV_LINK_MODE="clone"' in content
             assert "NIMCACHE=" in content
+
+            # Verify .envrc is added to strand info/exclude so git add -A does not track it
+            status_p = subprocess.run(["git", "-C", strand_path, "status", "--porcelain"], capture_output=True, text=True)
+            assert ".envrc" not in status_p.stdout, ".envrc should be ignored and untracked"
+            subprocess.run(["git", "-C", strand_path, "add", "-A"], check=True)
+            staged_p = subprocess.run(["git", "-C", strand_path, "status", "--porcelain"], capture_output=True, text=True)
+            assert ".envrc" not in staged_p.stdout, "git add -A must not stage synthesized .envrc"
+        finally:
+            if os.path.exists(strand_path):
+                subprocess.run(["git", "-C", repo_dir, "worktree", "remove", "--force", strand_path], capture_output=True)
+                subprocess.run(["git", "-C", repo_dir, "worktree", "prune"], capture_output=True)
+                shutil.rmtree(os.path.dirname(strand_path), ignore_errors=True)
+
+def test_vine_strand_tracked_envrc_preservation():
+    """Verify Vine does NOT overwrite or mutate an already-tracked .envrc in the canonical repository."""
+    with tempfile.TemporaryDirectory(prefix="vine_tracked_envrc_") as repo_dir:
+        subprocess.run(["git", "init", "-b", "main", "-q", repo_dir], check=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.email", "agent@vine.mesh"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.name", "Vine Agent"], check=True)
+
+        parent_envrc = os.path.join(repo_dir, ".envrc")
+        canonical_content = "# CANONICAL TRACKED ENVRC\nexport CANONICAL_ENVRC_LOADED=1\n"
+        with open(parent_envrc, "w") as f:
+            f.write(canonical_content)
+
+        subprocess.run(["git", "-C", repo_dir, "add", ".envrc"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "commit", "-q", "-m", "Commit canonical tracked .envrc"], check=True)
+
+        task_id = f"task-tracked-envrc-{int(time.time() * 1000)}"
+        code, out, err = run_vine("new", task_id, "--repo", repo_dir, "--branch", f"strand/{task_id}", "--worktree")
+        assert code == 0
+        strand_path = json.loads(out)["strand_path"]
+
+        try:
+            envrc_file = os.path.join(strand_path, ".envrc")
+            assert os.path.isfile(envrc_file)
+            content = open(envrc_file).read()
+            assert content == canonical_content, "Tracked .envrc must be preserved verbatim without overwrite"
+
+            # Verify working tree remains clean without git modification
+            status_p = subprocess.run(["git", "-C", strand_path, "status", "--porcelain"], capture_output=True, text=True)
+            assert status_p.stdout.strip() == "", "Working tree must be clean; .envrc must not be modified"
         finally:
             if os.path.exists(strand_path):
                 subprocess.run(["git", "-C", repo_dir, "worktree", "remove", "--force", strand_path], capture_output=True)
