@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Prevent `.envrc` Self-Recursion & Preserve Tracked `.envrc` (`src/strand.nim`, `src/guide.nim`, `AGENTS.md`, `tests/test_vine.py`)**:
+  - Guarded parent `.envrc` sourcing in synthesized strand `.envrc` files with an inode equality check (`[ ! "$PWD/.envrc" -ef <repoDir>/.envrc ]`), preventing infinite direnv recursion loops if `.envrc` is woven into canonical repository root.
+  - Checked whether `.envrc` is already tracked in git in `repoDir` (`git ls-files --error-unmatch .envrc`); if tracked, `vine new` preserves the tracked `.envrc` verbatim and does not overwrite it with the synthesized wrapper.
+  - Added strand-local `.envrc` to `info/exclude` in non-tracked repositories so `git add -A` inside strands never stages or commits synthesized `.envrc` files into the project repository.
+  - Added automated test cases `test_vine_strand_envrc_generation` and `test_vine_strand_tracked_envrc_preservation` in `tests/test_vine.py`.
+
 ## [0.2.17] - 2026-10-29
 
 ### Fixed

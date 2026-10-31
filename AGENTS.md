@@ -242,8 +242,8 @@ done
 #### Step 5: Non-Destructive Polyglot `.envrc` Setup
 Place this `.envrc` in `$STRAND_DIR` and run `direnv allow "$STRAND_DIR"`:
 ```bash
-# Source parent repository .envrc if present (non-destructive chaining)
-[ -f "$HOME/Development/<project>/.envrc" ] && source_env "$HOME/Development/<project>/.envrc"
+# Source parent repository .envrc if present (non-destructive chaining with inode self-recursion guard)
+[ -f "$HOME/Development/<project>/.envrc" ] && [ ! "$PWD/.envrc" -ef "$HOME/Development/<project>/.envrc" ] && source_env "$HOME/Development/<project>/.envrc"
 
 export PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 export CACHE_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/dev-workspaces/$(basename "$PROJECT_ROOT")"

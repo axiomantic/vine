@@ -21,8 +21,8 @@ Vine solves this through **Polyglot Build Cache Normalization** via non-destruct
 When a strand is provisioned (`vine new`), Vine places this `.envrc` into `$STRAND_DIR`:
 
 ```bash
-# 1. Non-destructive parent .envrc chaining
-[ -f "$HOME/Development/<project>/.envrc" ] && source_env "$HOME/Development/<project>/.envrc"
+# 1. Non-destructive parent .envrc chaining (with inode self-recursion guard)
+[ -f "$HOME/Development/<project>/.envrc" ] && [ ! "$PWD/.envrc" -ef "$HOME/Development/<project>/.envrc" ] && source_env "$HOME/Development/<project>/.envrc"
 
 # 2. Canonical project identifiers & shared cache root
 export PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
