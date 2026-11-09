@@ -273,6 +273,7 @@ proc evalStrandLua*(action: string, args: openArray[string]): JsonNode =
     if authorPubkey.len > 0: s["author_pubkey"] = %authorPubkey
     if mergeTreeSha.len > 0: s["merge_tree_sha"] = %mergeTreeSha
     if headCommit.len > 0: s["head_commit"] = %headCommit
+    s.delete("last_gate_error")
     gFallbackStrands[strandId] = s
     var res = newJObject()
     res["status"] = %"OK"
@@ -410,6 +411,8 @@ proc evalStrandLua*(action: string, args: openArray[string]): JsonNode =
     s["merge_tree_sha"] = %mergeTreeSha
     s["test_output_hash"] = %testOutputHash
     s["verified_at"] = %(nowEpoch)
+    if newState == "GATE_PASSED" or newState == "RATIFIED":
+      s.delete("last_gate_error")
 
     let extraJson = if args.len > 5: args[5] else: ""
     if extraJson.len > 0:

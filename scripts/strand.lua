@@ -198,6 +198,7 @@ elseif action == "submit" then
         "author", author,
         "author_pubkey", author_pubkey
     )
+    redis.call('HDEL', strand_key, "last_gate_error")
     if merge_tree_sha ~= "" then
         redis.call('HSET', strand_key, "merge_tree_sha", merge_tree_sha)
     end
@@ -661,6 +662,10 @@ elseif action == "update_gate" then
         "test_output_hash", test_output_hash,
         "verified_at", tostring(now)
     )
+
+    if new_state == "GATE_PASSED" or new_state == "RATIFIED" then
+        redis.call('HDEL', strand_key, "last_gate_error")
+    end
 
     local extra_json = ARGV[8] or ""
     if extra_json ~= "" then
