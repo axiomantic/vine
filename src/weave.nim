@@ -194,6 +194,9 @@ proc doBraidWeave*(
   let byAgent = getEnv("RHIZO_AGENT_NAME", getEnv("USER", "orchestrator"))
   if tid.len > 0:
     discard weaveStrandRedis(tid, headSha, byAgent)
+    if findExe("rhizo").len > 0:
+      let gateToken = if manifest != nil: manifest.getOrDefault("gate_token").getStr("") else: ""
+      discard execCmdEx("rhizo task complete " & quoteShell(tid) & " --gate-token " & quoteShell(gateToken))
 
   # Step 5: Auto-harvest matching Garden task seed if .garden exists in canonicalRepo
   let gSeeds = canonicalRepo / ".garden" / "seeds"

@@ -2,7 +2,7 @@
 # Vine — Sub-Second Rift Workspaces & Zero-Mirage Git Weaving Engine.
 
 import std/[os, strutils, json, sequtils]
-import strand, gate, weave, guide, config, update, notify
+import strand, gate, weave, guide, config, update, notify, crypto, redis_client
 
 const Version = "0.2.17"
 
@@ -16,7 +16,7 @@ proc printHelp() =
   echo "  vine collisions [--repo <path>] [--json]"
   echo "  vine gate [branch] [--base <ref>] [--dir <path>] [--submit] [--author <name>] [--timeout <sec>] [--skip-tests] [--allow-no-tests] [--allow-test-only] [--allow-no-changelog] [--allow-defeat-devices] [--ensure-unreleased] [--test-command <cmd>] [--json] [-- <command...>]"
   echo "  vine submit [task_id|path] [--dir <path>] [--author <name>] [--commit <msg>] [--listen] [--timeout <sec>] [--allow-no-tests] [--allow-test-only] [--allow-no-changelog] [--allow-defeat-devices] [--test-command <cmd>] [--no-notify] [--json]"
-  echo "  vine audit <approve|reject|status> [task_id|path] [--auditor <name>] [--reason <text>] [--notes <text>] [--findings <file>] [--dir <path>] [--no-notify] [--json]"
+  echo "  vine audit <approve|reject|status> [task_id|path] [--auditor <name>] [--ticket <hex>] [--force] [--listen] [--weave] [--reason <text>] [--notes <text>] [--findings <file>] [--dir <path>] [--no-notify] [--json]"
   echo "  vine sync [--dir <path>] [--base <ref>] [--rebase]"
   echo "  vine weave [branch] [--base <ref>] [--dir <path>] [--force] [--allow-no-tests] [--allow-no-changelog] [--allow-unaudited] [--no-notify]"
   echo "  vine changelog [entry] [--dir <path>] [--section <sec>] [--ensure-unreleased] [--check]"
@@ -108,10 +108,14 @@ proc printSubcommandHelp*(subcmd: string, args: seq[string] = @[]): bool =
     echo "  --json                Output submission result as JSON"
     return true
   of "audit":
-    echo "Usage: vine audit <approve|reject|status> [task_id|path] [--auditor <name>] [--reason <text>] [--notes <text>] [--findings <file>] [--dir <path>] [--no-notify] [--json]"
+    echo "Usage: vine audit <approve|reject|status> [task_id|path] [--auditor <name>] [--ticket <hex>] [--force] [--listen] [--weave] [--reason <text>] [--notes <text>] [--findings <file>] [--dir <path>] [--no-notify] [--json]"
     echo ""
     echo "Options:"
     echo "  --auditor <name>      Name of independent auditor"
+    echo "  --ticket <hex>        Delivery ticket hex from rhizo listen delivery"
+    echo "  --force               Bypass delivery ticket verification"
+    echo "  --listen              Arm single-shot rhizo listener after audit completion"
+    echo "  --weave               Automatically weave strand into trunk upon approval"
     echo "  --reason <text>       Rejection reason"
     echo "  --notes <text>        Approval or review notes"
     echo "  --findings <file>     Path to audit findings file"
@@ -175,6 +179,7 @@ proc printSubcommandHelp*(subcmd: string, args: seq[string] = @[]): bool =
     return false
 
 proc main() =
+  gBraidWeaveProc = doBraidWeave
   let args = commandLineParams()
   if args.len == 0 or args[0] in ["--help", "-h", "help"]:
     if args.len > 1 and printSubcommandHelp(args[1], args[2..^1]):
@@ -524,14 +529,31 @@ proc main() =
 
   of "audit":
     if args.len < 2:
-      stderr.writeLine("Usage: vine audit <approve|reject|status> [task_id|path] [--auditor <name>] [--reason <text>] [--notes <text>] [--findings <file>] [--dir <path>] [--json]")
+      stderr.writeLine("Usage: vine audit <approve|reject|status|set-ticket> [task_id|path] [--auditor <name>] [--ticket <hex>] [--force] [--listen] [--weave] [--reason <text>] [--notes <text>] [--findings <file>] [--dir <path>] [--json]")
       quit(1)
     let subaction = args[1].toLowerAscii
+    if subaction == "set-ticket":
+      if args.len < 4:
+        stderr.writeLine("Usage: vine audit set-ticket <task_id|path> <ticket_hex>")
+        quit(1)
+      let target = args[2]
+      let rawTicket = args[3].strip()
+      var strand = findStrandManifest(target)
+      let tid = if strand != nil: strand.getOrDefault("id").getStr(strand.getOrDefault("task_id").getStr(target)) else: target
+      let ticketHash = if rawTicket.len == 64: rawTicket.toLowerAscii else: sha256(rawTicket.toLowerAscii)
+      let sRes = setAuditTicketRedis(tid, ticketHash)
+      echo pretty(sRes)
+      quit(0)
+
     var strandDir = ""
     var auditor = ""
     var reason = ""
     var notes = ""
     var findingsFile = ""
+    var ticket = ""
+    var force = false
+    var listen = false
+    var weave = false
     var noNotify = false
     var jsonOut = false
     var i = 2
@@ -543,6 +565,12 @@ proc main() =
       elif a == "--auditor" and i + 1 < args.len:
         auditor = args[i+1]; inc i
       elif a.startsWith("--auditor="): auditor = a[10..^1]
+      elif a == "--ticket" and i + 1 < args.len:
+        ticket = args[i+1]; inc i
+      elif a.startsWith("--ticket="): ticket = a[9..^1]
+      elif a == "--force": force = true
+      elif a == "--listen": listen = true
+      elif a == "--weave": weave = true
       elif a == "--reason" and i + 1 < args.len:
         reason = args[i+1]; inc i
       elif a.startsWith("--reason="): reason = a[9..^1]
@@ -557,7 +585,19 @@ proc main() =
       elif not a.startsWith("-") and strandDir.len == 0:
         strandDir = a
       inc i
-    let (res, code) = doStrandAudit(subaction, strandDir, auditor, reason, findingsFile, notes, noNotify)
+    let (res, code) = doStrandAudit(
+      action = subaction,
+      strandDirParam = strandDir,
+      auditorParam = auditor,
+      reasonParam = reason,
+      findingsFileParam = findingsFile,
+      notesParam = notes,
+      noNotify = noNotify,
+      ticketParam = ticket,
+      forceParam = force,
+      weaveParam = weave,
+      listenParam = false
+    )
     if jsonOut:
       echo pretty(res)
     else:
@@ -568,6 +608,8 @@ proc main() =
           echo "  Author     : " & res{"author"}.getStr("")
           echo "  Auditor    : " & res{"auditor"}.getStr("")
           echo "  Audit Token: " & res{"audit_token"}.getStr("")
+          if res.hasKey("weave"):
+            echo "  Trunk Weave: PASS (woven into trunk)"
           if res.hasKey("notification") and res["notification"].hasKey("primary_mode"):
             let nm = res["notification"]
             echo "  Notified   : " & nm{"primary_mode"}.getStr("") & " (" & nm{"primary_target"}.getStr("") & ")"
@@ -594,7 +636,16 @@ proc main() =
           stderr.writeLine("[ERROR] " & res["error"].getStr())
         else:
           stderr.writeLine(pretty(res))
-    quit(code)
+    if code != 0:
+      quit(code)
+
+    if listen:
+      let effAuditor = res{"auditor"}.getStr(auditor)
+      let project = res{"project"}.getStr("vine")
+      let listenCode = runRhizoListen(effAuditor, project)
+      quit(listenCode)
+
+    quit(0)
 
   of "sync", "rebase":
     var strandDir = ""

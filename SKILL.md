@@ -58,7 +58,7 @@ Sovereign Worker Allocation: Workspaces are strictly 1:1 with sovereign worker t
 </INVARIANT>
 
 <FORBIDDEN>
-Never stage or commit '.vine.json' or workspace metadata into Git. Strand metadata must remain uncommitted and ignored.
+Never stage or commit workspace metadata into Git. Strand metadata must remain uncommitted and ignored.
 </FORBIDDEN>
 
 <CRITICAL>
@@ -312,5 +312,5 @@ Trunk is updated via fast-forward merge and the strand is automatically pruned.
 See [`docs/configuration.md`](docs/configuration.md) for full details on:
 - **Environment Variables**: `VINE_WORKSPACES_DIR` (base strand directory), `VINE_PROJECTS_DIR`, `VINE_CONFIG`, `VINE_PRIMARY_BRANCH`, `VINE_TEST_COMMAND`, and `VINE_VENV_POLICY`.
 - **`vine.toml`**: Customizing `primary_branch`, `venv_policy` (`prompt`, `auto_yes`, `auto_no`), `vendor_dirs`, and semantic `test_command`.
-- **`.vine.json` Manifest**: Runtime state machine tracking (`PROVISIONED`, `IN_PROGRESS`, `GATE_EVALUATING`, `CONFLICTED`, `GATE_FAILED`, `GATE_PASSED`, `WEAVED`) and intended merge-base SHAs.
+- **Redis Strand Manifest & State Machine**: Runtime state machine tracking (`PROVISIONED`, `IN_PROGRESS`, `GATE_EVALUATING`, `CONFLICTED`, `GATE_FAILED`, `GATE_PASSED`, `WOVEN`) and intended merge-base SHAs in Redis.
 

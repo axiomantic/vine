@@ -115,7 +115,8 @@ if action == "create" then
         "auditor", "",
         "auditor_pubkey", "",
         "rejection_reason", "",
-        "notes", ""
+        "notes", "",
+        "audit_ticket_hash", ""
     )
 
     if strand_path and strand_path ~= "" then
@@ -193,6 +194,7 @@ elseif action == "submit" then
         "status", "READY_FOR_AUDIT",
         "lifecycle_state", "SUBMITTED",
         "submitted_at", tostring(now),
+        "audit_ticket_hash", "",
         "author", author,
         "author_pubkey", author_pubkey
     )
@@ -230,6 +232,8 @@ elseif action == "submit" then
 -- ARGV[6]: audit_token
 -- ARGV[7]: notes / findings
 -- ARGV[8]: anti_blink_floor (default 5 seconds)
+-- ARGV[9]: ticket_hash (optional delivery ticket hash)
+-- ARGV[10]: force ("1" or "true" to bypass ticket verification)
 --------------------------------------------------------------------------------
 elseif action == "ratify" then
     local strand_id = string.lower(ARGV[3] or "")
@@ -265,6 +269,20 @@ elseif action == "ratify" then
     end
     local notes = ARGV[7] or ""
     local anti_blink_floor = tonumber(ARGV[8] or 0) or 0
+    local ticket_hash = ARGV[9] or ""
+    local force = (ARGV[10] == "1" or string.lower(ARGV[10] or "") == "true")
+
+    -- INVARIANT 0: Delivery Ticket Verification
+    local recorded_ticket_hash = redis.call('HGET', strand_key, "audit_ticket_hash") or ""
+    if not force then
+        if recorded_ticket_hash ~= "" then
+            if ticket_hash == "" or string.lower(ticket_hash) ~= string.lower(recorded_ticket_hash) then
+                return redis.error_reply("ERR: Audit ticket violation: Missing or invalid --ticket <hex> from rhizo listen delivery.")
+            end
+        elseif ticket_hash ~= "" then
+            return redis.error_reply("ERR: Audit ticket violation: Missing or invalid --ticket <hex> from rhizo listen delivery.")
+        end
+    end
 
     -- INVARIANT 1: Independent Auditor (auditor_pubkey != author_pubkey)
     if author_pubkey ~= "" and string.lower(auditor_pubkey) == string.lower(author_pubkey) then
@@ -304,6 +322,7 @@ elseif action == "ratify" then
         "auditor", auditor_name,
         "auditor_pubkey", auditor_pubkey,
         "audit_token", audit_token,
+        "audit_ticket_hash", "",
         "notes", notes
     )
 
@@ -328,6 +347,8 @@ elseif action == "ratify" then
 -- ARGV[5]: auditor_name
 -- ARGV[6]: reason
 -- ARGV[7]: notes
+-- ARGV[8]: ticket_hash (optional delivery ticket hash)
+-- ARGV[9]: force ("1" or "true" to bypass ticket verification)
 --------------------------------------------------------------------------------
 elseif action == "reject" then
     local strand_id = string.lower(ARGV[3] or "")
@@ -357,6 +378,20 @@ elseif action == "reject" then
         return redis.error_reply("ERR: Missing rejection defect reason")
     end
     local notes = ARGV[7] or ""
+    local ticket_hash = ARGV[8] or ""
+    local force = (ARGV[9] == "1" or string.lower(ARGV[9] or "") == "true")
+
+    -- Delivery Ticket Verification
+    local recorded_ticket_hash = redis.call('HGET', strand_key, "audit_ticket_hash") or ""
+    if not force then
+        if recorded_ticket_hash ~= "" then
+            if ticket_hash == "" or string.lower(ticket_hash) ~= string.lower(recorded_ticket_hash) then
+                return redis.error_reply("ERR: Audit ticket violation: Missing or invalid --ticket <hex> from rhizo listen delivery.")
+            end
+        elseif ticket_hash ~= "" then
+            return redis.error_reply("ERR: Audit ticket violation: Missing or invalid --ticket <hex> from rhizo listen delivery.")
+        end
+    end
 
     -- Self-rejection check
     if author_pubkey ~= "" and string.lower(auditor_pubkey) == string.lower(author_pubkey) then
@@ -371,6 +406,7 @@ elseif action == "reject" then
         "auditor", auditor_name,
         "auditor_pubkey", auditor_pubkey,
         "rejection_reason", reason,
+        "audit_ticket_hash", "",
         "notes", notes
     )
 
@@ -688,6 +724,31 @@ elseif action == "prune" or action == "delete" then
         status = "OK",
         id = strand_id,
         action = "pruned"
+    })
+
+--------------------------------------------------------------------------------
+-- 11. ACTION: set_audit_ticket
+-- ARGV[3]: strand_id
+-- ARGV[4]: ticket_hash
+--------------------------------------------------------------------------------
+elseif action == "set_audit_ticket" then
+    local strand_id = string.lower(ARGV[3] or "")
+    if strand_id == "" then
+        return redis.error_reply("ERR: Missing strand_id")
+    end
+
+    local ticket_hash = ARGV[4] or ""
+    local strand_key = prefix .. "strand:" .. strand_id
+    if redis.call('EXISTS', strand_key) == 0 then
+        return redis.error_reply("ERR: Strand '" .. strand_id .. "' does not exist")
+    end
+
+    redis.call('HSET', strand_key, "audit_ticket_hash", ticket_hash)
+
+    return cjson.encode({
+        status = "OK",
+        id = strand_id,
+        audit_ticket_hash = ticket_hash
     })
 
 else

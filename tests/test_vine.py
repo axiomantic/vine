@@ -688,14 +688,15 @@ def test_vine_strand_deep_lifecycle_and_status():
             assert s_data3["commits_ahead"] == 1
             assert s_data3["dirty_count"] == 0
 
-            # 4. Fail gate with failing test command -> verify GATE_FAILED in vine status
+            # 4. Fail gate with failing test command -> verify IN_PROGRESS preserved and last_gate_error recorded
             fail_cmd = f"{sys.executable} -c 'import sys; sys.exit(1)'"
             f_code, _, _ = run_vine("gate", "--dir", strand_path, "--base", "develop", "--test-command", fail_cmd, "--json")
             assert f_code == 2
             s_code_fail, s_out_fail, _ = run_vine("status", "--dir", strand_path, "--json")
             assert s_code_fail == 0
             s_data_fail = json.loads(s_out_fail)
-            assert s_data_fail["lifecycle_state"] == "GATE_FAILED"
+            assert s_data_fail["lifecycle_state"] == "IN_PROGRESS"
+            assert "last_gate_error" in s_data_fail
 
             # 5. Pass gate -> GATE_PASSED
             g_code, g_out, _ = run_vine("gate", "--dir", strand_path, "--base", "develop", "--skip-tests", "--allow-no-tests", "--json")
@@ -1246,6 +1247,156 @@ def test_vine_subcommand_help_and_flag_guards():
         assert "Invalid task ID: '--invalid-flag'" in err
         p2 = subprocess.run(["git", "-C", repo_dir, "branch", "--list", "*invalid*"], capture_output=True, text=True)
         assert p2.stdout.strip() == "", f"Accidental branch created: {p2.stdout}"
+
+
+def test_vine_delivery_ticket_verification():
+    """Verify delivery ticket validation in vine audit approve|reject, exit code 6, and --force bypass."""
+    import hashlib
+    with tempfile.TemporaryDirectory(prefix="vine_ticket_") as repo_dir:
+        subprocess.run(["git", "init", "-b", "main", "-q", repo_dir], check=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.email", "agent@vine.mesh"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.name", "Vine Agent"], check=True)
+
+        os.makedirs(os.path.join(repo_dir, "src"), exist_ok=True)
+        with open(os.path.join(repo_dir, "src", "app.nim"), "w") as f:
+            f.write("echo \"hello\"\n")
+        subprocess.run(["git", "-C", repo_dir, "add", "src/app.nim"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "commit", "-q", "-m", "Initial commit"], check=True)
+
+        task_id = f"task-ticket-{int(time.time() * 1000)}"
+        code, out, err = run_vine("new", task_id, "--repo", repo_dir, "--branch", f"strand/{task_id}", "--worktree")
+        assert code == 0, f"Failed to create strand: {err}\nOut: {out}"
+        strand_path = json.loads(out)["strand_path"]
+
+        try:
+            # Add provider and consumer in strand
+            with open(os.path.join(strand_path, "src", "feature.nim"), "w") as f:
+                f.write("proc feature*(): int = 42\n")
+            with open(os.path.join(strand_path, "src", "app.nim"), "w") as f:
+                f.write("import feature\necho feature()\n")
+            subprocess.run(["git", "-C", strand_path, "add", "src/feature.nim", "src/app.nim"], check=True)
+            subprocess.run(["git", "-C", strand_path, "commit", "-q", "-m", "feat: implement feature"], check=True)
+
+            # Submit strand
+            sub_code, sub_out, _ = run_vine("submit", "--dir", strand_path, "--author", "worker-alice", "--allow-no-tests", "--json")
+            assert sub_code == 0
+            assert json.loads(sub_out)["status"] == "ready_for_audit"
+
+            # Set delivery ticket
+            raw_ticket = "0123456789abcdef0123456789abcdef"
+            t_code, t_out, _ = run_vine("audit", "set-ticket", strand_path, raw_ticket)
+            assert t_code == 0
+
+            # 1. Missing ticket -> Exit 6
+            a_code1, a_out1, a_err1 = run_vine("audit", "approve", "--dir", strand_path, "--auditor", "auditor-bob", "--json")
+            assert a_code1 == 6, f"Expected 6, got {a_code1}: {a_out1} {a_err1}"
+            assert "Audit ticket violation" in (a_out1 + a_err1)
+
+            # 2. Invalid ticket -> Exit 6
+            a_code2, a_out2, a_err2 = run_vine("audit", "approve", "--dir", strand_path, "--auditor", "auditor-bob", "--ticket", "badticket", "--json")
+            assert a_code2 == 6
+            assert "Audit ticket violation" in (a_out2 + a_err2)
+
+            # 3. Reject with wrong ticket -> Exit 6
+            r_code1, r_out1, r_err1 = run_vine("audit", "reject", "--dir", strand_path, "--auditor", "auditor-bob", "--reason", "defect", "--ticket", "badticket", "--json")
+            assert r_code1 == 6
+            assert "Audit ticket violation" in (r_out1 + r_err1)
+
+            # 4. Valid ticket on reject -> passes (Exit 0)
+            r_code2, r_out2, _ = run_vine("audit", "reject", "--dir", strand_path, "--auditor", "auditor-bob", "--reason", "minor defect", "--ticket", raw_ticket, "--json")
+            assert r_code2 == 0
+            assert json.loads(r_out2)["status"] == "audit_rejected"
+
+            # Re-submit for approval test
+            with open(os.path.join(strand_path, "src", "feature.nim"), "a") as f:
+                f.write("# fix\n")
+            subprocess.run(["git", "-C", strand_path, "add", "src/feature.nim"], check=True)
+            subprocess.run(["git", "-C", strand_path, "commit", "-q", "-m", "fix: defect fixed"], check=True)
+
+            sub_code2, _, _ = run_vine("submit", "--dir", strand_path, "--author", "worker-alice", "--allow-no-tests", "--json")
+            assert sub_code2 == 0
+
+            # Set new delivery ticket
+            ticket2 = "abcdef0123456789abcdef0123456789"
+            run_vine("audit", "set-ticket", strand_path, ticket2)
+
+            # 5. Force flag bypasses ticket verification -> Exit 0
+            a_code_force, a_out_force, _ = run_vine("audit", "approve", "--dir", strand_path, "--auditor", "auditor-charlie", "--force", "--json")
+            assert a_code_force == 0
+            assert json.loads(a_out_force)["status"] == "audit_ratified"
+
+        finally:
+            if os.path.exists(strand_path):
+                subprocess.run(["git", "-C", repo_dir, "worktree", "remove", "--force", strand_path], capture_output=True)
+                subprocess.run(["git", "-C", repo_dir, "worktree", "prune"], capture_output=True)
+                shutil.rmtree(os.path.dirname(os.path.dirname(strand_path)), ignore_errors=True)
+
+
+def test_vine_audit_approve_weave():
+    """Verify 'vine audit approve --weave' ratifies and automatically weaves the strand."""
+    with tempfile.TemporaryDirectory(prefix="vine_weave_audit_") as repo_dir:
+        subprocess.run(["git", "init", "-b", "main", "-q", repo_dir], check=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.email", "agent@vine.mesh"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.name", "Vine Agent"], check=True)
+
+        os.makedirs(os.path.join(repo_dir, "src"), exist_ok=True)
+        with open(os.path.join(repo_dir, "src", "main.nim"), "w") as f:
+            f.write("echo \"main\"\n")
+        subprocess.run(["git", "-C", repo_dir, "add", "src/main.nim"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "commit", "-q", "-m", "Initial commit"], check=True)
+
+        task_id = f"task-weave-{int(time.time() * 1000)}"
+        code, out, err = run_vine("new", task_id, "--repo", repo_dir, "--branch", f"strand/{task_id}", "--worktree")
+        assert code == 0
+        strand_path = json.loads(out)["strand_path"]
+
+        try:
+            with open(os.path.join(strand_path, "src", "helper.nim"), "w") as f:
+                f.write("proc help*(): int = 100\n")
+            with open(os.path.join(strand_path, "src", "main.nim"), "w") as f:
+                f.write("import helper\necho help()\n")
+            subprocess.run(["git", "-C", strand_path, "add", "src/helper.nim", "src/main.nim"], check=True)
+            subprocess.run(["git", "-C", strand_path, "commit", "-q", "-m", "feat: add helper"], check=True)
+
+            sub_code, sub_out, _ = run_vine("submit", "--dir", strand_path, "--author", "worker-w", "--allow-no-tests", "--json")
+            assert sub_code == 0
+
+            # Audit approve with --weave
+            a_code, a_out, a_err = run_vine("audit", "approve", "--dir", strand_path, "--auditor", "auditor-a", "--weave", "--json")
+            assert a_code == 0, f"Audit approve --weave failed: {a_err}\nOut: {a_out}"
+            data = json.loads(a_out)
+            assert data["status"] == "audit_ratified"
+            assert "weave" in data
+            assert data["weave"]["status"] == "woven"
+
+            # Verify canonical repo has the woven commit
+            log = subprocess.run(["git", "-C", repo_dir, "log", "-1", "--pretty=%B"], capture_output=True, text=True, check=True).stdout
+            assert "feat: add helper" in log
+            assert os.path.exists(os.path.join(repo_dir, "src", "helper.nim"))
+
+        finally:
+            if os.path.exists(strand_path):
+                subprocess.run(["git", "-C", repo_dir, "worktree", "remove", "--force", strand_path], capture_output=True)
+                subprocess.run(["git", "-C", repo_dir, "worktree", "prune"], capture_output=True)
+                shutil.rmtree(os.path.dirname(os.path.dirname(strand_path)), ignore_errors=True)
+
+
+def test_vine_submit_canonical_trunk_protection():
+    """Verify vine submit fails fast when executed directly on canonical trunk with no/multiple strands."""
+    with tempfile.TemporaryDirectory(prefix="vine_trunk_") as repo_dir:
+        subprocess.run(["git", "init", "-b", "main", "-q", repo_dir], check=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.email", "agent@vine.mesh"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.name", "Vine Agent"], check=True)
+
+        with open(os.path.join(repo_dir, "README.md"), "w") as f:
+            f.write("# Trunk\n")
+        subprocess.run(["git", "-C", repo_dir, "add", "README.md"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "commit", "-q", "-m", "Initial commit"], check=True)
+
+        # Run vine submit from canonical trunk with an author having no active strands
+        code, out, err = run_vine("submit", "--author", "worker-none", "--dir", repo_dir, "--json")
+        assert code == 1
+        assert "Cannot run vine submit directly on canonical trunk" in (out + err)
 
 
 if __name__ == "__main__":

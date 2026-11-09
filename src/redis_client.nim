@@ -268,6 +268,7 @@ proc evalStrandLua*(action: string, args: openArray[string]): JsonNode =
     s["status"] = %"READY_FOR_AUDIT"
     s["lifecycle_state"] = %"SUBMITTED"
     s["submitted_at"] = %(nowEpoch)
+    s["audit_ticket_hash"] = %""
     if author.len > 0: s["author"] = %author
     if authorPubkey.len > 0: s["author_pubkey"] = %authorPubkey
     if mergeTreeSha.len > 0: s["merge_tree_sha"] = %mergeTreeSha
@@ -287,10 +288,20 @@ proc evalStrandLua*(action: string, args: openArray[string]): JsonNode =
     let auditorName = if args.len > 2: args[2] else: auditorPubkey
     let auditToken = if args.len > 3: args[3] else: ""
     let notes = if args.len > 4: args[4] else: ""
+    let ticketHash = if args.len > 6: args[6] else: ""
+    let force = if args.len > 7: (args[7] == "1" or args[7].toLowerAscii == "true") else: false
 
     if not gFallbackStrands.hasKey(strandId):
       var err = newJObject(); err["error"] = %("Strand '" & strandId & "' does not exist"); return err
     var s = gFallbackStrands[strandId]
+    let recordedTicketHash = s.getOrDefault("audit_ticket_hash").getStr("")
+    if not force:
+      if recordedTicketHash.len > 0:
+        if ticketHash.len == 0 or ticketHash.toLowerAscii != recordedTicketHash.toLowerAscii:
+          var err = newJObject(); err["error"] = %"Audit ticket violation: Missing or invalid --ticket <hex> from rhizo listen delivery."; return err
+      elif ticketHash.len > 0:
+        var err = newJObject(); err["error"] = %"Audit ticket violation: Missing or invalid --ticket <hex> from rhizo listen delivery."; return err
+
     let author = s.getOrDefault("author").getStr("")
     let authorPub = s.getOrDefault("author_pubkey").getStr("")
     if (author.len > 0 and author.toLowerAscii == auditorName.toLowerAscii) or
@@ -303,6 +314,7 @@ proc evalStrandLua*(action: string, args: openArray[string]): JsonNode =
     s["auditor"] = %auditorName
     s["auditor_pubkey"] = %auditorPubkey
     s["audit_token"] = %auditToken
+    s["audit_ticket_hash"] = %""
     s["notes"] = %notes
     gFallbackStrands[strandId] = s
     var res = newJObject()
@@ -319,10 +331,20 @@ proc evalStrandLua*(action: string, args: openArray[string]): JsonNode =
     let auditorName = if args.len > 2: args[2] else: auditorPubkey
     let reason = if args.len > 3: args[3] else: ""
     let notes = if args.len > 4: args[4] else: ""
+    let ticketHash = if args.len > 5: args[5] else: ""
+    let force = if args.len > 6: (args[6] == "1" or args[6].toLowerAscii == "true") else: false
 
     if not gFallbackStrands.hasKey(strandId):
       var err = newJObject(); err["error"] = %("Strand '" & strandId & "' does not exist"); return err
     var s = gFallbackStrands[strandId]
+    let recordedTicketHash = s.getOrDefault("audit_ticket_hash").getStr("")
+    if not force:
+      if recordedTicketHash.len > 0:
+        if ticketHash.len == 0 or ticketHash.toLowerAscii != recordedTicketHash.toLowerAscii:
+          var err = newJObject(); err["error"] = %"Audit ticket violation: Missing or invalid --ticket <hex> from rhizo listen delivery."; return err
+      elif ticketHash.len > 0:
+        var err = newJObject(); err["error"] = %"Audit ticket violation: Missing or invalid --ticket <hex> from rhizo listen delivery."; return err
+
     s["state"] = %"REJECTED"
     s["status"] = %"AUDIT_REJECTED"
     s["lifecycle_state"] = %"REJECTED"
@@ -330,6 +352,7 @@ proc evalStrandLua*(action: string, args: openArray[string]): JsonNode =
     s["auditor"] = %auditorName
     s["auditor_pubkey"] = %auditorPubkey
     s["rejection_reason"] = %reason
+    s["audit_ticket_hash"] = %""
     s["notes"] = %notes
     gFallbackStrands[strandId] = s
     var res = newJObject()
@@ -466,6 +489,20 @@ proc evalStrandLua*(action: string, args: openArray[string]): JsonNode =
     res["id"] = %strandId
     return res
 
+  of "set_audit_ticket":
+    let strandId = if args.len > 0: args[0].toLowerAscii else: ""
+    let ticketHash = if args.len > 1: args[1] else: ""
+    if not gFallbackStrands.hasKey(strandId):
+      var err = newJObject(); err["error"] = %("Strand '" & strandId & "' does not exist"); return err
+    var s = gFallbackStrands[strandId]
+    s["audit_ticket_hash"] = %ticketHash
+    gFallbackStrands[strandId] = s
+    var res = newJObject()
+    res["status"] = %"OK"
+    res["id"] = %strandId
+    res["audit_ticket_hash"] = %ticketHash
+    return res
+
   else:
     var err = newJObject()
     err["error"] = %("Unknown action: " & action)
@@ -517,18 +554,25 @@ proc ratifyStrandRedis*(
   auditorName: string,
   auditToken: string,
   notes: string = "",
-  antiBlinkFloor: int = 0
+  antiBlinkFloor: int = 0,
+  ticketHash: string = "",
+  force: bool = false
 ): JsonNode =
-  return evalStrandLua("ratify", [strandId, auditorPubkey, auditorName, auditToken, notes, $antiBlinkFloor])
+  return evalStrandLua("ratify", [strandId, auditorPubkey, auditorName, auditToken, notes, $antiBlinkFloor, ticketHash, if force: "1" else: "0"])
 
 proc rejectStrandRedis*(
   strandId: string,
   auditorPubkey: string,
   auditorName: string,
   reason: string,
-  notes: string = ""
+  notes: string = "",
+  ticketHash: string = "",
+  force: bool = false
 ): JsonNode =
-  return evalStrandLua("reject", [strandId, auditorPubkey, auditorName, reason, notes])
+  return evalStrandLua("reject", [strandId, auditorPubkey, auditorName, reason, notes, ticketHash, if force: "1" else: "0"])
+
+proc setAuditTicketRedis*(strandId, ticketHash: string): JsonNode =
+  return evalStrandLua("set_audit_ticket", [strandId, ticketHash])
 
 proc weaveStrandRedis*(
   strandId: string,

@@ -19,7 +19,7 @@ Vine provides zero-drag workspace virtualization, polyglot build-cache normaliza
 Vine provides comprehensive workspace, gate, and build cache specifications:
 
 ### Core Protocols & Architecture
-* **[Strand Lifecycle Specification](docs/strand_lifecycle.md)**: Zero-cost Rift Copy-on-Write strands, directory isolation, `.vine.json` runtime manifest, and collision detection.
+* **[Strand Lifecycle Specification](docs/strand_lifecycle.md)**: Zero-cost Rift Copy-on-Write strands, directory isolation, Redis runtime manifests, and collision detection.
 * **[Three-Key Gate Specification](docs/two_key_gate.md)**: Zero "Green Mirage" philosophy, Key 1 mechanical merge-tree + Key 2 live test discovery cascade + Key 3 independent adversarial code audit ratification and cryptographic gate tokens.
 * **[Polyglot Build Cache Normalization](docs/cache_normalization.md)**: Non-destructive `.envrc` chaining, Ccache, Cargo target, uv clone links, and Nimcache unification.
 * **[CLI Reference Manual](docs/cli_reference.md)**: Complete catalog of all Vine commands (`new`, `status`, `collisions`, `gate`, `submit`, `audit`, `weave`, `list`, `sync`, `prune`).
@@ -132,7 +132,7 @@ vine prune --apply
 ## Configuration & Environment Variables
 
 > [!TIP]
-> For the complete specification of `vine.toml`, `.vine.json` runtime state schemas, and environment variables, see the [Vine Configuration & Manifest Reference](docs/configuration.md).
+> For the complete specification of `vine.toml`, Redis runtime state schemas, and environment variables, see the [Vine Configuration & Manifest Reference](docs/configuration.md).
 
 Vine provides zero-config defaults that can be customized via `vine.toml` or environment variables:
 

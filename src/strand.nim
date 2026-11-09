@@ -305,23 +305,6 @@ proc doStrandList*(repoDirParam: string = "", includeAll: bool = false): JsonNod
           s["status"] = s["state"]
         strands.add(s)
 
-  # Fallback for orphan discovery or legacy migration
-  if strands.len == 0 and dirExists(workspacesBase):
-    for kind, projectDir in walkDir(workspacesBase):
-      if kind == pcDir:
-        let curProj = projectDir.splitPath.tail
-        if not includeAll and curProj != projectName: continue
-        for subKind, taskDir in walkDir(projectDir):
-          if subKind == pcDir:
-            for itemKind, leafDir in walkDir(taskDir):
-              if itemKind == pcDir:
-                let manifestPath = leafDir / ".vine.json"
-                if fileExists(manifestPath):
-                  try:
-                    let j = parseJson(readFile(manifestPath))
-                    strands.add(j)
-                  except CatchableError: discard
-
   var res = newJObject()
   res["project"] = %projectName
   res["count"] = %(strands.len)
@@ -488,17 +471,6 @@ proc findStrandManifest*(query: string = "", repoDirParam: string = ""): JsonNod
         if byNorm != nil and byNorm.kind == JObject and (byNorm.hasKey("id") or byNorm.hasKey("task_id")):
           if not byNorm.hasKey("status") and byNorm.hasKey("state"): byNorm["status"] = byNorm["state"]
           return byNorm
-
-    # Legacy on-disk check (for transition migration)
-    if dirExists(q) and fileExists(q / ".vine.json"):
-      try: return parseJson(readFile(q / ".vine.json"))
-      except CatchableError: discard
-    if fileExists(q) and q.endsWith(".vine.json"):
-      try: return parseJson(readFile(q))
-      except CatchableError: discard
-    if dirExists(q.parentDir()) and fileExists(q.parentDir() / ".vine.json"):
-      try: return parseJson(readFile(q.parentDir() / ".vine.json"))
-      except CatchableError: discard
 
   # Tier 2: Check current branch convention (refs/heads/strand/<id> or strand/<id>)
   let targetDir = if q.len > 0 and dirExists(q): q.normalizedPath else: getCurrentDir()
@@ -677,6 +649,7 @@ proc doStrandStatus*(strandDirOrId: string = ""): tuple[status: JsonNode, exitCo
     if manifest.hasKey("merge_tree_sha"): res["merge_tree_sha"] = manifest["merge_tree_sha"]
     if manifest.hasKey("test_output_hash"): res["test_output_hash"] = manifest["test_output_hash"]
     if manifest.hasKey("rejection_reason"): res["rejection_reason"] = manifest["rejection_reason"]
+    if manifest.hasKey("last_gate_error"): res["last_gate_error"] = manifest["last_gate_error"]
     if manifest.hasKey("machine_id"): res["machine_id"] = manifest["machine_id"]
 
   return (res, 0)
