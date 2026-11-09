@@ -7,7 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Delivery Ticket Verification (`--ticket <hex>`) & Bypass (`--force`) in `vine audit` (`src/vine.nim`, `src/gate.nim`, `src/redis_client.nim`, `scripts/strand.lua`, `tests/test_vine.py`)**:
+  - Implemented delivery ticket verification in `vine audit approve|reject`: validates `--ticket <hex>` against `audit_ticket_hash` recorded on the strand in Redis (`ExitGateAuditViolation = 6` on mismatch or missing ticket).
+  - Added atomic `set_audit_ticket` Lua action in `scripts/strand.lua` and `setAuditTicketRedis` in `src/redis_client.nim` with offline fallback.
+  - Clears `audit_ticket_hash` to `""` upon successful ratification, rejection, or strand re-submission.
+  - Added `--force` flag to `vine audit approve|reject` to allow manual operator bypass of ticket checks when required.
+  - Preserved backward compatibility: strands without `audit_ticket_hash` allow unticketed approvals/rejections as before.
+- **Atomic `vine audit approve --weave` & `vine audit --listen` (`src/vine.nim`, `src/gate.nim`)**:
+  - Added `--weave` flag to `vine audit approve`: automatically invokes fast-forward trunk merge via `doBraidWeave` immediately upon successful ratification and attaches the weave result to the audit response.
+  - Added `--listen` flag to `vine audit approve|reject`: re-arms foreground listener (`runRhizoListen`) for the auditor session after completing audit operations.
+- **Auto-Complete Rhizo Task on `vine weave` (`src/weave.nim`)**:
+  - Integrated automatic `rhizo task complete <task_id> --gate-token <gate_token>` execution upon successful trunk weave when `rhizo` CLI is available.
+
 ### Fixed
+- **Prevent `GATE_FAILED` as Permanent Resting State (`src/gate.nim`, `src/strand.nim`, `tests/test_vine.py`)**:
+  - When `doBraidGate` fails (due to semantic test failures, defeat devices, changelog violations, or two-point diff defects), the strand state is preserved as `IN_PROGRESS` (or `PROVISIONED`) and the failure is recorded in `last_gate_error`, preventing workspaces from being permanently locked in `GATE_FAILED`.
+  - Updated `doStrandStatus` to expose `last_gate_error` in JSON and status outputs.
+- **Canonical Trunk Protection in `vine submit` & Complete `.vine.json` Purge (`src/gate.nim`, `src/strand.nim`, `src/guide.nim`, `SKILL.md`, `README.md`)**:
+  - Protected canonical repository root against direct `vine submit` execution: if run on canonical trunk (`main`/`master` without active strand manifest), checks whether author has a single active strand in Redis to auto-resolve; otherwise fails fast with code 1 (`"Error: Cannot run vine submit directly on canonical trunk. cd into your strand or pass <task_id>."`).
+  - Purged all remaining `.vine.json` legacy on-disk scanners from `doStrandList` and `findStrandManifest` in favor of pure Redis state and `.git/config` `vine.taskId`.
+  - Updated documentation, guides, and skills to completely eliminate `.vine.json` references.
 - **Prevent `.envrc` Self-Recursion & Preserve Tracked `.envrc` (`src/strand.nim`, `src/guide.nim`, `AGENTS.md`, `tests/test_vine.py`)**:
   - Guarded parent `.envrc` sourcing in synthesized strand `.envrc` files with an inode equality check (`[ ! "$PWD/.envrc" -ef <repoDir>/.envrc ]`), preventing infinite direnv recursion loops if `.envrc` is woven into canonical repository root.
   - Checked whether `.envrc` is already tracked in git in `repoDir` (`git ls-files --error-unmatch .envrc`); if tracked, `vine new` preserves the tracked `.envrc` verbatim and does not overwrite it with the synthesized wrapper.

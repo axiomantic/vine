@@ -15,6 +15,26 @@ const
   ExitGateAuditViolation* = 6
   ExitGateDefeatDeviceViolation* = 7
 
+type BraidWeaveProc* = proc(
+  branchParam: string = "",
+  baseRefParam: string = "",
+  strandDirParam: string = "",
+  force: bool = false,
+  allowNoTests: bool = false,
+  allowNoChangelog: bool = false,
+  allowUnaudited: bool = false,
+  noNotify: bool = false
+): tuple[output: JsonNode, exitCode: int] {.nimcall.}
+
+var gBraidWeaveProc*: BraidWeaveProc = nil
+
+proc recordGateFailure*(strandTaskId: string, priorState: string, errMsg: string) =
+  if strandTaskId.len == 0: return
+  let restingState = if priorState == "PROVISIONED": "PROVISIONED" else: "IN_PROGRESS"
+  var extraObj = newJObject()
+  extraObj["last_gate_error"] = %errMsg
+  discard updateGateRedis(strandTaskId, restingState, extraJson = $extraObj)
+
 const ChangelogFilenames* = [
   "CHANGELOG.md", "changelog.md",
   "CHANGES.md", "changes.md",
@@ -340,6 +360,9 @@ proc doBraidGate*(
   if timeoutSecParam > 0.0:
     effectiveTimeout = timeoutSecParam
   let prevStatus = if manifest != nil and manifest.hasKey("status"): manifest["status"].getStr() else: ""
+  let priorState = if manifest != nil and manifest.hasKey("state"): manifest["state"].getStr()
+                   elif manifest != nil and manifest.hasKey("status"): manifest["status"].getStr()
+                   else: "IN_PROGRESS"
 
   # Track gate evaluation in Redis
   let strandTaskId = if manifest != nil and manifest.hasKey("task_id"): manifest["task_id"].getStr("")
@@ -431,7 +454,7 @@ proc doBraidGate*(
         res["two_point_diff"] = %"FAIL"
         res["two_point_diff_error"] = %"Two-Point Diff Violation: 100% of changes are in tests/. Deliverable must include production capability in application source files (src/, bin/, etc.)."
         if strandTaskId.len > 0:
-          discard updateGateRedis(strandTaskId, "GATE_FAILED")
+          recordGateFailure(strandTaskId, priorState, res["two_point_diff_error"].getStr())
         return (res, 3)
 
       # Invariant 2: Newly introduced capabilities must have a consumer call-site in application source files
@@ -472,7 +495,7 @@ proc doBraidGate*(
           res["two_point_diff_error"] = %("Two-Point Diff Violation: Newly introduced capability '" & newCap &
             "' lacks a consumer call-site in application source files (src/, bin/, etc.). Shelfware without production caller is prohibited.")
           if strandTaskId.len > 0:
-            discard updateGateRedis(strandTaskId, "GATE_FAILED")
+            recordGateFailure(strandTaskId, priorState, res["two_point_diff_error"].getStr())
           return (res, 3)
 
       res["two_point_diff"] = %"PASS"
@@ -498,7 +521,7 @@ proc doBraidGate*(
             res["changelog_error"] = %("Changelog Gate Violation: Repository contains '" & changelogFile &
               "', but this strand diff does not include a changelog update. Record your deliverable under the '## [Unreleased]' section (or run 'vine changelog \"<entry>\"' or pass --allow-no-changelog).")
             if strandTaskId.len > 0:
-              discard updateGateRedis(strandTaskId, "GATE_FAILED")
+              recordGateFailure(strandTaskId, priorState, res["changelog_error"].getStr())
             return (res, ExitGateChangelogViolation)
 
           let changelogFullPath = strandDir / changelogFile
@@ -516,7 +539,7 @@ proc doBraidGate*(
                 res["changelog_error"] = %("Changelog Gate Violation: '" & changelogFile &
                   "' is modified in strand, but is missing an '## [Unreleased]' section. Add or run 'vine changelog --ensure-unreleased'.")
                 if strandTaskId.len > 0:
-                  discard updateGateRedis(strandTaskId, "GATE_FAILED")
+                  recordGateFailure(strandTaskId, priorState, res["changelog_error"].getStr())
                 return (res, ExitGateChangelogViolation)
             else:
               res["changelog_gate"] = %"PASS"
@@ -558,7 +581,7 @@ proc doBraidGate*(
         "Deliverables that bypass genuine execution pipelines or emit static mock questionnaires to fake benchmark compliance are strictly prohibited. Pass --allow-defeat-devices to bypass."
       )
       if strandTaskId.len > 0:
-        discard updateGateRedis(strandTaskId, "GATE_FAILED")
+        recordGateFailure(strandTaskId, priorState, res["defeat_device_error"].getStr())
       return (res, ExitGateDefeatDeviceViolation)
     else:
       res["defeat_device_gate"] = %"PASS"
@@ -620,7 +643,7 @@ proc doBraidGate*(
         res["compiler_output"] = %tOut.strip()
 
         if strandTaskId.len > 0:
-          discard updateGateRedis(strandTaskId, "GATE_FAILED")
+          recordGateFailure(strandTaskId, priorState, res["compiler_output"].getStr())
 
         return (res, 2)
       res["key2_semantic"] = %"PASS"
@@ -634,7 +657,7 @@ proc doBraidGate*(
       res["compiler_output"] = %"Zero tests executed: no test runner detected in strand. To prevent Green Mirage, pass --allow-no-tests if this repository does not have tests."
 
       if strandTaskId.len > 0:
-        discard updateGateRedis(strandTaskId, "GATE_FAILED")
+        recordGateFailure(strandTaskId, priorState, res["compiler_output"].getStr())
 
       return (res, 2)
   else:
@@ -647,7 +670,7 @@ proc doBraidGate*(
       res["key2_semantic"] = %"FAIL (tests skipped without --allow-no-tests)"
       res["compiler_output"] = %"Zero tests executed: --skip-tests was provided without --allow-no-tests. Gate failed to prevent Green Mirage."
       if strandTaskId.len > 0:
-        discard updateGateRedis(strandTaskId, "GATE_FAILED")
+        recordGateFailure(strandTaskId, priorState, res["compiler_output"].getStr())
       return (res, 2)
 
   # Both Keys and Two-Point Diff Passed!
@@ -725,6 +748,37 @@ proc doStrandSubmit*(
   var manifest = findStrandManifest(if strandDirParam.len > 0: strandDirParam else: strandDir)
   if manifest != nil and manifest.hasKey("strand_path") and dirExists(manifest["strand_path"].getStr):
     strandDir = manifest["strand_path"].getStr.normalizedPath
+
+  if manifest == nil:
+    let (bOut, bCode) = execCmdEx("git -C " & quoteShell(strandDir) & " rev-parse --abbrev-ref HEAD")
+    let curBranch = if bCode == 0: bOut.strip() else: ""
+    let (cfgOut, cfgCode) = execCmdEx("git -C " & quoteShell(strandDir) & " config vine.taskId")
+    let vineTaskId = if cfgCode == 0: cfgOut.strip() else: ""
+
+    if (curBranch in ["main", "master"] or curBranch.len == 0) and vineTaskId.len == 0:
+      var singleStrand: JsonNode = nil
+      var activeCount = 0
+      let authorToCheck = if authorParam.len > 0: authorParam
+                          elif getEnv("RHIZO_AGENT_NAME").len > 0: getEnv("RHIZO_AGENT_NAME")
+                          else: getEnv("USER", "")
+      if authorToCheck.len > 0:
+        let allStrands = listStrandsRedis("", "")
+        if allStrands != nil and allStrands.hasKey("strands") and allStrands["strands"].kind == JArray:
+          for s in allStrands["strands"]:
+            let a = s.getOrDefault("author").getStr(s.getOrDefault("worker").getStr(""))
+            let st = s.getOrDefault("state").getStr(s.getOrDefault("status").getStr(""))
+            if a.toLowerAscii == authorToCheck.toLowerAscii and st notin ["WOVEN"]:
+              inc activeCount
+              singleStrand = s
+      if activeCount == 1 and singleStrand != nil:
+        manifest = singleStrand
+        if manifest.hasKey("strand_path") and dirExists(manifest["strand_path"].getStr):
+          strandDir = manifest["strand_path"].getStr.normalizedPath
+      else:
+        var errObj = newJObject()
+        errObj["status"] = %"error"
+        errObj["error"] = %"Error: Cannot run vine submit directly on canonical trunk. cd into your strand or pass <task_id>."
+        return (errObj, 1)
 
   # Optional auto-commit if working directory is dirty before running gate validation
   var autoCommitted = false
@@ -815,7 +869,11 @@ proc doStrandAudit*(
   reasonParam: string = "",
   findingsFileParam: string = "",
   notesParam: string = "",
-  noNotify: bool = false
+  noNotify: bool = false,
+  ticketParam: string = "",
+  forceParam: bool = false,
+  weaveParam: bool = false,
+  listenParam: bool = false
 ): tuple[output: JsonNode, exitCode: int] =
   var strandDir = if strandDirParam.len > 0: strandDirParam.normalizedPath else: getCurrentDir()
   var manifest = findStrandManifest(if strandDirParam.len > 0: strandDirParam else: strandDir)
@@ -827,6 +885,12 @@ proc doStrandAudit*(
     errObj["status"] = %"error"
     errObj["error"] = %("No strand found for: " & (if strandDirParam.len > 0: strandDirParam else: strandDir))
     return (errObj, 1)
+
+  let tid = manifest.getOrDefault("id").getStr(manifest.getOrDefault("task_id").getStr(""))
+  if tid.len > 0:
+    let updated = getStrandRedis(tid)
+    if updated != nil and updated.kind == JObject:
+      manifest = updated
 
   let normAction = action.toLowerAscii
   case normAction
@@ -859,6 +923,22 @@ proc doStrandAudit*(
       errObj["error"] = %("Self-audit violation: Worker '" & author & "' cannot audit their own strand. Key 3 requires an independent Adversarial Auditor created by the Orchestrator.")
       return (errObj, ExitGateAuditViolation)
 
+    # Ticket Verification
+    let ticketHash = if ticketParam.strip().len > 0: sha256(ticketParam.strip().toLowerAscii) else: ""
+    let recordedTicketHash = manifest.getOrDefault("audit_ticket_hash").getStr("")
+    if not forceParam:
+      if recordedTicketHash.len > 0:
+        if ticketHash.len == 0 or ticketHash.toLowerAscii != recordedTicketHash.toLowerAscii:
+          var errObj = newJObject()
+          errObj["status"] = %"audit_violation"
+          errObj["error"] = %"Audit ticket violation: Missing or invalid --ticket <hex> from rhizo listen delivery."
+          return (errObj, ExitGateAuditViolation)
+      elif ticketHash.len > 0:
+        var errObj = newJObject()
+        errObj["status"] = %"audit_violation"
+        errObj["error"] = %"Audit ticket violation: Missing or invalid --ticket <hex> from rhizo listen delivery."
+        return (errObj, ExitGateAuditViolation)
+
     var findings = ""
     if findingsFileParam.len > 0 and fileExists(findingsFileParam):
       try: findings = readFile(findingsFileParam)
@@ -866,9 +946,8 @@ proc doStrandAudit*(
 
     let reason = if reasonParam.len > 0: reasonParam else: "Audit failed: defects detected during adversarial review."
 
-    let tid = manifest.getOrDefault("id").getStr(manifest.getOrDefault("task_id").getStr(""))
     if tid.len > 0:
-      let rejRes = rejectStrandRedis(tid, auditor, auditor, reason, findings)
+      let rejRes = rejectStrandRedis(tid, auditor, auditor, reason, findings, ticketHash = ticketHash, force = forceParam)
       if rejRes != nil and rejRes.kind == JObject and rejRes.hasKey("error"):
         var errObj = newJObject()
         errObj["status"] = %"audit_violation"
@@ -887,6 +966,16 @@ proc doStrandAudit*(
     let notifyRes = notifyStrandEvent(manifest, "AUDIT_REJECTED", res, noNotify)
     if notifyRes != nil:
       res["notification"] = notifyRes
+
+    if listenParam:
+      let effProject = if manifest != nil and manifest.hasKey("project") and manifest["project"].getStr.len > 0:
+                         manifest["project"].getStr
+                       else:
+                         "vine"
+      let lCode = runRhizoListen(auditor, effProject)
+      res["listen_exit_code"] = %lCode
+      return (res, lCode)
+
     return (res, 0)
 
   of "approve", "ratify":
@@ -908,6 +997,22 @@ proc doStrandAudit*(
       errObj["status"] = %"audit_violation"
       errObj["error"] = %("Self-audit violation: Worker '" & author & "' cannot audit their own strand. Key 3 requires an independent Adversarial Auditor created by the Orchestrator.")
       return (errObj, ExitGateAuditViolation)
+
+    # Ticket Verification
+    let ticketHash = if ticketParam.strip().len > 0: sha256(ticketParam.strip().toLowerAscii) else: ""
+    let recordedTicketHash = manifest.getOrDefault("audit_ticket_hash").getStr("")
+    if not forceParam:
+      if recordedTicketHash.len > 0:
+        if ticketHash.len == 0 or ticketHash.toLowerAscii != recordedTicketHash.toLowerAscii:
+          var errObj = newJObject()
+          errObj["status"] = %"audit_violation"
+          errObj["error"] = %"Audit ticket violation: Missing or invalid --ticket <hex> from rhizo listen delivery."
+          return (errObj, ExitGateAuditViolation)
+      elif ticketHash.len > 0:
+        var errObj = newJObject()
+        errObj["status"] = %"audit_violation"
+        errObj["error"] = %"Audit ticket violation: Missing or invalid --ticket <hex> from rhizo listen delivery."
+        return (errObj, ExitGateAuditViolation)
 
     let currentStatus = manifest.getOrDefault("status").getStr("")
     let currentLifecycle = manifest.getOrDefault("lifecycle_state").getStr("")
@@ -963,9 +1068,8 @@ proc doStrandAudit*(
     let effectiveTreeSha = if currentTreeSha.len > 0: currentTreeSha else: recordedTreeSha
     let auditToken = computeAuditToken(gateToken, effectiveTreeSha, auditor)
 
-    let tid = manifest.getOrDefault("id").getStr(manifest.getOrDefault("task_id").getStr(""))
     if tid.len > 0:
-      let rResp = ratifyStrandRedis(tid, auditor, auditor, auditToken, notesParam)
+      let rResp = ratifyStrandRedis(tid, auditor, auditor, auditToken, notesParam, antiBlinkFloor = 0, ticketHash = ticketHash, force = forceParam)
       if rResp != nil and rResp.kind == JObject and rResp.hasKey("error"):
         var errObj = newJObject()
         errObj["status"] = %"audit_violation"
@@ -984,6 +1088,28 @@ proc doStrandAudit*(
     let notifyRes = notifyStrandEvent(manifest, "AUDIT_RATIFIED", res, noNotify)
     if notifyRes != nil:
       res["notification"] = notifyRes
+
+    if weaveParam:
+      if gBraidWeaveProc != nil:
+        let (weaveRes, weaveCode) = gBraidWeaveProc(strandDirParam = strandDir, noNotify = noNotify)
+        res["weave"] = weaveRes
+        if weaveCode != 0:
+          return (res, weaveCode)
+      else:
+        var errObj = newJObject()
+        errObj["status"] = %"weave_failed"
+        errObj["error"] = %"Internal error: gBraidWeaveProc is not registered"
+        return (errObj, 1)
+
+    if listenParam:
+      let effProject = if manifest != nil and manifest.hasKey("project") and manifest["project"].getStr.len > 0:
+                         manifest["project"].getStr
+                       else:
+                         "vine"
+      let lCode = runRhizoListen(auditor, effProject)
+      res["listen_exit_code"] = %lCode
+      return (res, lCode)
+
     return (res, 0)
   else:
     var errObj = newJObject()

@@ -10,6 +10,14 @@ import strand, gate, weave, guide, config, crypto, process
 var testRepoCounter = 0
 let initialWorkingDir = getCurrentDir()
 
+proc gitRun(dir: string, args: string) =
+  discard execCmdEx("git -C " & quoteShell(dir) & " " & args)
+
+proc cleanupStrand(repo: string, strandPath: string) =
+  discard execCmdEx("git -C " & quoteShell(repo) & " worktree remove --force " & quoteShell(strandPath))
+  discard execCmdEx("git -C " & quoteShell(repo) & " worktree prune")
+  removeDir(strandPath.parentDir())
+
 proc createTestGitRepo(prefix: string): string =
   try: setCurrentDir(initialWorkingDir)
   except CatchableError: discard
@@ -18,11 +26,11 @@ proc createTestGitRepo(prefix: string): string =
   removeDir(repo)
   createDir(repo)
   discard execCmdEx("git init -b main -q " & quoteShell(repo))
-  discard execCmdEx("git -C " & quoteShell(repo) & " config user.email agent@braid.mesh")
-  discard execCmdEx("git -C " & quoteShell(repo) & " config user.name 'Braid Agent'")
+  gitRun(repo, "config user.email agent@braid.mesh")
+  gitRun(repo, "config user.name 'Braid Agent'")
   writeFile(repo / "README.md", "# Test Repo\n")
-  discard execCmdEx("git -C " & quoteShell(repo) & " add README.md")
-  discard execCmdEx("git -C " & quoteShell(repo) & " commit -q -m 'Initial commit'")
+  gitRun(repo, "add README.md")
+  gitRun(repo, "commit -q -m 'Initial commit'")
   return repo
 
 suite "Vine Advanced Two-Key Gate & Timeout Rail Suite":
@@ -50,16 +58,14 @@ suite "Vine Advanced Two-Key Gate & Timeout Rail Suite":
       check sCode == 0
       let strandPath = sRes["strand_path"].getStr()
       defer:
-        discard execCmdEx("git -C " & quoteShell(repo) & " worktree remove --force " & quoteShell(strandPath))
-        discard execCmdEx("git -C " & quoteShell(repo) & " worktree prune")
-        removeDir(strandPath.parentDir())
+        cleanupStrand(repo, strandPath)
 
       # Commit a change in strand
       writeFile(strandPath / "feature.txt", "Some code\n")
-      discard execCmdEx("git -C " & quoteShell(strandPath) & " add feature.txt")
-      discard execCmdEx("git -C " & quoteShell(strandPath) & " commit -q -m 'feat: some code'")
+      gitRun(strandPath, "add feature.txt")
+      gitRun(strandPath, "commit -q -m 'feat: some code'")
 
-      # Gate WITHOUT allowNoTests MUST fail with exit code 2 and GATE_FAILED
+      # Gate WITHOUT allowNoTests MUST fail with exit code 2 and preserve IN_PROGRESS
       let (gFailRes, gFailCode) = doBraidGate(
         branchParam = "strand/task-tw-mirage",
         baseRefParam = "main",
@@ -74,7 +80,8 @@ suite "Vine Advanced Two-Key Gate & Timeout Rail Suite":
       check not fileExists(strandPath / ".vine.json")
       let mFail = findStrandManifest(strandPath)
       check mFail != nil
-      check mFail["status"].getStr() == "GATE_FAILED"
+      check mFail["status"].getStr() in ["IN_PROGRESS", "PROVISIONED"]
+      check mFail.hasKey("last_gate_error")
 
       # Gate WITH allowNoTests MUST pass
       let (gPassRes, gPassCode) = doBraidGate(
@@ -104,8 +111,8 @@ suite "Vine Advanced Two-Key Gate & Timeout Rail Suite":
         removeDir(repo)
 
       writeFile(repo / "vine.toml", "[verification]\ntest_command = \"sh -c 'exit 0'\"\n")
-      discard execCmdEx("git -C " & quoteShell(repo) & " add vine.toml")
-      discard execCmdEx("git -C " & quoteShell(repo) & " commit -q -m 'Add config'")
+      gitRun(repo, "add vine.toml")
+      gitRun(repo, "commit -q -m 'Add config'")
 
       let (sRes, sCode) = doStrandNew(
         taskId = "task-tw-tpd-1",
@@ -116,15 +123,13 @@ suite "Vine Advanced Two-Key Gate & Timeout Rail Suite":
       check sCode == 0
       let strandPath = sRes["strand_path"].getStr()
       defer:
-        discard execCmdEx("git -C " & quoteShell(repo) & " worktree remove --force " & quoteShell(strandPath))
-        discard execCmdEx("git -C " & quoteShell(repo) & " worktree prune")
-        removeDir(strandPath.parentDir())
+        cleanupStrand(repo, strandPath)
 
       # Commit changes ONLY in tests/
       createDir(strandPath / "tests")
       writeFile(strandPath / "tests" / "test_shelfware.nim", "echo \"test only\"\n")
-      discard execCmdEx("git -C " & quoteShell(strandPath) & " add tests/test_shelfware.nim")
-      discard execCmdEx("git -C " & quoteShell(strandPath) & " commit -q -m 'test: only tests'")
+      gitRun(strandPath, "add tests/test_shelfware.nim")
+      gitRun(strandPath, "commit -q -m 'test: only tests'")
 
       let (gRes, gCode) = doBraidGate(
         branchParam = "strand/task-tw-tpd-1",
@@ -139,7 +144,8 @@ suite "Vine Advanced Two-Key Gate & Timeout Rail Suite":
       check not fileExists(strandPath / ".vine.json")
       let m = findStrandManifest(strandPath)
       check m != nil
-      check m["status"].getStr() == "GATE_FAILED"
+      check m["status"].getStr() in ["IN_PROGRESS", "PROVISIONED"]
+      check m.hasKey("last_gate_error")
 
   test "Two-Point Diff Invariant 2: rejects strands with new capability lacking consumer call-site":
     sandbox:
@@ -154,8 +160,8 @@ suite "Vine Advanced Two-Key Gate & Timeout Rail Suite":
       writeFile(repo / "vine.toml", "[verification]\ntest_command = \"sh -c 'exit 0'\"\n")
       createDir(repo / "src")
       writeFile(repo / "src" / "existing.nim", "echo \"existing app file\"\n")
-      discard execCmdEx("git -C " & quoteShell(repo) & " add vine.toml src/existing.nim")
-      discard execCmdEx("git -C " & quoteShell(repo) & " commit -q -m 'Initial app code'")
+      gitRun(repo, "add vine.toml src/existing.nim")
+      gitRun(repo, "commit -q -m 'Initial app code'")
 
       let (sRes, sCode) = doStrandNew(
         taskId = "task-tw-tpd-2",
@@ -166,16 +172,14 @@ suite "Vine Advanced Two-Key Gate & Timeout Rail Suite":
       check sCode == 0
       let strandPath = sRes["strand_path"].getStr()
       defer:
-        discard execCmdEx("git -C " & quoteShell(repo) & " worktree remove --force " & quoteShell(strandPath))
-        discard execCmdEx("git -C " & quoteShell(repo) & " worktree prune")
-        removeDir(strandPath.parentDir())
+        cleanupStrand(repo, strandPath)
 
       # Add new capability src/unconsumed_feature.nim (without any consumer calling it)
       writeFile(strandPath / "src" / "unconsumed_feature.nim", "proc feature*() = discard\n")
       createDir(strandPath / "tests")
       writeFile(strandPath / "tests" / "test_feature.nim", "import ../src/unconsumed_feature\n")
-      discard execCmdEx("git -C " & quoteShell(strandPath) & " add src/unconsumed_feature.nim tests/test_feature.nim")
-      discard execCmdEx("git -C " & quoteShell(strandPath) & " commit -q -m 'feat: unconsumed shelfware'")
+      gitRun(strandPath, "add src/unconsumed_feature.nim tests/test_feature.nim")
+      gitRun(strandPath, "commit -q -m 'feat: unconsumed shelfware'")
 
       let (gRes, gCode) = doBraidGate(
         branchParam = "strand/task-tw-tpd-2",
@@ -200,8 +204,8 @@ suite "Vine Advanced Two-Key Gate & Timeout Rail Suite":
       writeFile(repo / "vine.toml", "[verification]\ntest_command = \"sh -c 'echo Running Tests && exit 0'\"\n")
       createDir(repo / "src")
       writeFile(repo / "src" / "main.nim", "echo \"main entrypoint\"\n")
-      discard execCmdEx("git -C " & quoteShell(repo) & " add vine.toml src/main.nim")
-      discard execCmdEx("git -C " & quoteShell(repo) & " commit -q -m 'Initial app code'")
+      gitRun(repo, "add vine.toml src/main.nim")
+      gitRun(repo, "commit -q -m 'Initial app code'")
 
       let (sRes, sCode) = doStrandNew(
         taskId = "task-tw-tpd-3",
@@ -212,9 +216,7 @@ suite "Vine Advanced Two-Key Gate & Timeout Rail Suite":
       check sCode == 0
       let strandPath = sRes["strand_path"].getStr()
       defer:
-        discard execCmdEx("git -C " & quoteShell(repo) & " worktree remove --force " & quoteShell(strandPath))
-        discard execCmdEx("git -C " & quoteShell(repo) & " worktree prune")
-        removeDir(strandPath.parentDir())
+        cleanupStrand(repo, strandPath)
 
       # Provider: new capability
       writeFile(strandPath / "src" / "my_provider.nim", "proc provide*(): string = \"live\"\n")
@@ -223,8 +225,8 @@ suite "Vine Advanced Two-Key Gate & Timeout Rail Suite":
       # Test: test file
       createDir(strandPath / "tests")
       writeFile(strandPath / "tests" / "test_provider.nim", "import ../src/my_provider\n")
-      discard execCmdEx("git -C " & quoteShell(strandPath) & " add src/my_provider.nim src/main.nim tests/test_provider.nim")
-      discard execCmdEx("git -C " & quoteShell(strandPath) & " commit -q -m 'feat: provider and consumer integrated'")
+      gitRun(strandPath, "add src/my_provider.nim src/main.nim tests/test_provider.nim")
+      gitRun(strandPath, "commit -q -m 'feat: provider and consumer integrated'")
 
       let (gRes, gCode) = doBraidGate(
         branchParam = "strand/task-tw-tpd-3",
@@ -264,8 +266,8 @@ suite "Vine Advanced Two-Key Gate & Timeout Rail Suite":
       writeFile(repo / "vine.toml", "[verification]\ntest_command = \"sh -c 'echo [START] Hanging test... && sleep 100 && echo [END]'\"\n")
       createDir(repo / "src")
       writeFile(repo / "src" / "main.nim", "echo \"main entrypoint\"\n")
-      discard execCmdEx("git -C " & quoteShell(repo) & " add vine.toml src/main.nim")
-      discard execCmdEx("git -C " & quoteShell(repo) & " commit -q -m 'Initial app code'")
+      gitRun(repo, "add vine.toml src/main.nim")
+      gitRun(repo, "commit -q -m 'Initial app code'")
 
       let (sRes, sCode) = doStrandNew(
         taskId = "task-tw-timeout-1",
@@ -276,17 +278,15 @@ suite "Vine Advanced Two-Key Gate & Timeout Rail Suite":
       check sCode == 0
       let strandPath = sRes["strand_path"].getStr()
       defer:
-        discard execCmdEx("git -C " & quoteShell(repo) & " worktree remove --force " & quoteShell(strandPath))
-        discard execCmdEx("git -C " & quoteShell(repo) & " worktree prune")
-        removeDir(strandPath.parentDir())
+        cleanupStrand(repo, strandPath)
 
       # Provider & Consumer
       writeFile(strandPath / "src" / "my_provider.nim", "proc provide*(): string = \"live\"\n")
       writeFile(strandPath / "src" / "main.nim", "import my_provider\necho provide()\n")
       createDir(strandPath / "tests")
       writeFile(strandPath / "tests" / "test_provider.nim", "import ../src/my_provider\n")
-      discard execCmdEx("git -C " & quoteShell(strandPath) & " add src/my_provider.nim src/main.nim tests/test_provider.nim")
-      discard execCmdEx("git -C " & quoteShell(strandPath) & " commit -q -m 'feat: provider and consumer integrated'")
+      gitRun(strandPath, "add src/my_provider.nim src/main.nim tests/test_provider.nim")
+      gitRun(strandPath, "commit -q -m 'feat: provider and consumer integrated'")
 
       # Run gate with a 0.5 second timeout threshold
       let (gRes, gCode) = doBraidGate(
