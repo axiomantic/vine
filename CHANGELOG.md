@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.18] - 2026-11-09
+
 ### Added
 - **Delivery Ticket Verification (`--ticket <hex>`) & Bypass (`--force`) in `vine audit` (`src/vine.nim`, `src/gate.nim`, `src/redis_client.nim`, `scripts/strand.lua`, `tests/test_vine.py`)**:
   - Implemented delivery ticket verification in `vine audit approve|reject`: validates `--ticket <hex>` against `audit_ticket_hash` recorded on the strand in Redis (`ExitGateAuditViolation = 6` on mismatch or missing ticket).
