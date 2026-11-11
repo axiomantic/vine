@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.19] - 2026-11-11
+
 ### Added
 - **Evidence-Bound Audit Approval (`--evidence <text>`) (`src/vine.nim`, `src/gate.nim`, `src/guide.nim`, `skills/vine/SKILL.md`)**:
   - `vine audit approve` strictly enforces substantive verification evidence via `--evidence <text>` (or `--notes <text>` when `>= 20` characters).
