@@ -22,6 +22,17 @@ proc doBraidWeave*(
   if manifest != nil and manifest.hasKey("strand_path") and dirExists(manifest["strand_path"].getStr):
     strandDir = manifest["strand_path"].getStr.normalizedPath
 
+  if manifest == nil:
+    let (bOut, bCode) = execCmdEx("git -C " & quoteShell(strandDir) & " rev-parse --abbrev-ref HEAD")
+    let curBranch = if bCode == 0: bOut.strip() else: ""
+    let (cfgOut, cfgCode) = execCmdEx("git -C " & quoteShell(strandDir) & " config vine.taskId")
+    let vineTaskId = if cfgCode == 0: cfgOut.strip() else: ""
+    if (curBranch in ["main", "master"] or curBranch.len == 0) and vineTaskId.len == 0:
+      var errObj = newJObject()
+      errObj["status"] = %"error"
+      errObj["message"] = %formatActiveStrandsHelp("weave", strandDir)
+      return (errObj, 1)
+
   let tid = if manifest != nil: manifest.getOrDefault("id").getStr(manifest.getOrDefault("task_id").getStr("")) else: ""
 
   # Step 1: Run Gate check if not already verified green
@@ -191,7 +202,9 @@ proc doBraidWeave*(
   # Step 5: Update Redis Strand State to WOVEN (Atomically updates state and removes strands:by_path)
   let (headShaOut, _) = execCmdEx("git -C " & quoteShell(canonicalRepo) & " rev-parse HEAD")
   let headSha = headShaOut.strip()
-  let byAgent = getEnv("RHIZO_AGENT_NAME", getEnv("USER", "orchestrator"))
+  let byAgent = if getEnv("RHIZO_AGENT_NAME").len > 0: getEnv("RHIZO_AGENT_NAME")
+                elif resolveSessionAgent().len > 0: resolveSessionAgent()
+                else: "orchestrator"
   if tid.len > 0:
     discard weaveStrandRedis(tid, headSha, byAgent)
     if findExe("rhizo").len > 0:

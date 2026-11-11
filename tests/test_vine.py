@@ -1391,13 +1391,20 @@ def test_vine_audit_approve_weave():
             insp_code, _, _ = run_vine("audit", "inspect", "--dir", strand_path)
             assert insp_code == 0
 
-            # Audit approve with --weave
+            # Audit approve with --weave is retired and fails with code 2
             a_code, a_out, a_err = run_vine("audit", "approve", "--dir", strand_path, "--auditor", "auditor-a", "--evidence", "Verified helper.nim: help proc and caller verified", "--weave", "--json")
-            assert a_code == 0, f"Audit approve --weave failed: {a_err}\nOut: {a_out}"
-            data = json.loads(a_out)
+            assert a_code == 2, f"Expected code 2 for --weave on audit approve, got {a_code}"
+            assert "Error: --weave is no longer supported on vine audit approve (Auditor Merge-Clerk Decoupling)" in a_err
+
+            # Auditor ratifies Key 3 without --weave
+            a_code_ok, a_out_ok, a_err_ok = run_vine("audit", "approve", "--dir", strand_path, "--auditor", "auditor-a", "--evidence", "Verified helper.nim: help proc and caller verified", "--json")
+            assert a_code_ok == 0, f"Audit approve failed: {a_err_ok}\nOut: {a_out_ok}"
+            data = json.loads(a_out_ok)
             assert data["status"] == "audit_ratified"
-            assert "weave" in data
-            assert data["weave"]["status"] == "woven"
+
+            # Lead Orchestrator executes vine weave separately
+            w_code, w_out, w_err = run_vine("weave", "--dir", strand_path)
+            assert w_code == 0, f"Vine weave failed: {w_err}\nOut: {w_out}"
 
             # Verify canonical repo has the woven commit
             log = subprocess.run(["git", "-C", repo_dir, "log", "-1", "--pretty=%B"], capture_output=True, text=True, check=True).stdout
@@ -1604,6 +1611,160 @@ def test_vine_evidence_bound_audit_approval():
             data_ok = json.loads(out_ok)
             assert data_ok["status"] == "audit_ratified"
             assert "feature.py" in data_ok.get("evidence", "")
+
+        finally:
+            if os.path.exists(strand_path):
+                subprocess.run(["git", "-C", repo_dir, "worktree", "remove", "--force", strand_path], capture_output=True)
+                subprocess.run(["git", "-C", repo_dir, "worktree", "prune"], capture_output=True)
+                shutil.rmtree(os.path.dirname(os.path.dirname(strand_path)), ignore_errors=True)
+
+
+def test_vine_author_auditor_missing_fail_fast():
+    """Verify vine submit, audit approve, and audit reject fail fast when author/auditor is omitted."""
+    clean_env = {
+        "RHIZO_AGENT_NAME": "",
+        "RHIZO_AGENT_ID": "",
+        "ANTIGRAVITY_CONVERSATION_ID": "",
+        "OPENCODE_SESSION_ID": "",
+        "PI_SESSION_ID": "",
+        "CLAUDE_CONVERSATION_ID": "",
+        "CLAUDE_SESSION_ID": "",
+        "CODEX_SESSION_ID": "",
+        "RHIZO_SESSION_ID": "",
+    }
+    with tempfile.TemporaryDirectory(prefix="vine_id_missing_") as repo_dir:
+        subprocess.run(["git", "init", "-b", "main", "-q", repo_dir], check=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.email", "agent@vine.mesh"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.name", "Vine Agent"], check=True)
+        with open(os.path.join(repo_dir, "README.md"), "w") as f:
+            f.write("# Test\n")
+        subprocess.run(["git", "-C", repo_dir, "add", "README.md"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "commit", "-q", "-m", "Initial commit"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "checkout", "-b", "strand/test-task"], check=True)
+
+        code, out, err = run_vine("submit", "--dir", repo_dir, env=clean_env)
+        assert code == 1, f"Expected code 1, got {code}"
+        assert "Error: Missing required --author" in (out + err)
+
+        code, out, err = run_vine("audit", "approve", "task-fake", env=clean_env)
+        assert code == 1, f"Expected code 1, got {code}"
+        assert "Error: Missing required --auditor" in (out + err)
+
+        code, out, err = run_vine("audit", "reject", "task-fake", env=clean_env)
+        assert code == 1, f"Expected code 1, got {code}"
+        assert "Error: Missing required --auditor" in (out + err)
+
+
+def test_vine_role_as_id_rejection():
+    """Verify ERR_ROLE_AS_ID triggers when generic role titles are passed as author or auditor."""
+    with tempfile.TemporaryDirectory(prefix="vine_role_id_") as repo_dir:
+        subprocess.run(["git", "init", "-b", "main", "-q", repo_dir], check=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.email", "agent@vine.mesh"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.name", "Vine Agent"], check=True)
+        with open(os.path.join(repo_dir, "README.md"), "w") as f:
+            f.write("# Test\n")
+        subprocess.run(["git", "-C", repo_dir, "add", "README.md"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "commit", "-q", "-m", "Initial commit"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "checkout", "-b", "strand/test-task"], check=True)
+
+        # 1. Author passed generic role title 'implementer'
+        code, out, err = run_vine("submit", "--dir", repo_dir, "--author", "implementer")
+        assert code == 1
+        assert "ERR_ROLE_AS_ID" in (out + err)
+        assert "'implementer' is a role name, not a unique agent_id!" in (out + err)
+
+        # 2. Author passed compound role name ending with '-orchestrator'
+        code, out, err = run_vine("submit", "--dir", repo_dir, "--author", "vine-orchestrator")
+        assert code == 1
+        assert "ERR_ROLE_AS_ID" in (out + err)
+        assert "'vine-orchestrator' is a role name, not a unique agent_id!" in (out + err)
+
+        # 3. Auditor passed generic role title 'auditor'
+        code, out, err = run_vine("audit", "approve", "task-fake", "--auditor", "auditor")
+        assert code == 1
+        assert "ERR_ROLE_AS_ID" in (out + err)
+        assert "'auditor' is a role name, not a unique agent_id!" in (out + err)
+
+        # 4. Auditor passed generic role title 'architect' on reject
+        code, out, err = run_vine("audit", "reject", "task-fake", "--auditor", "architect")
+        assert code == 1
+        assert "ERR_ROLE_AS_ID" in (out + err)
+        assert "'architect' is a role name, not a unique agent_id!" in (out + err)
+
+        # 5. Bypass via --allow-role-id
+        code, out, err = run_vine("submit", "--dir", repo_dir, "--author", "implementer", "--allow-role-id")
+        # Should not fail with ERR_ROLE_AS_ID
+        assert "ERR_ROLE_AS_ID" not in (out + err)
+
+
+def test_vine_unknown_flag_rejection():
+    """Verify unknown CLI options exit with code 2 across all subcommands."""
+    subcommands_and_flags = [
+        ("submit", "--bogus-flag"),
+        ("gate", "--invalid-option"),
+        ("weave", "--no-such-flag"),
+        ("status", "--unknown-opt"),
+        ("sync", "--bad-arg"),
+        ("changelog", "--weird-flag"),
+        ("prune", "--mystery-opt"),
+    ]
+    for subcmd, flag in subcommands_and_flags:
+        code, out, err = run_vine(subcmd, flag)
+        assert code == 2, f"Expected exit code 2 for 'vine {subcmd} {flag}', got {code}. Output: {out}\nErr: {err}"
+        assert f"Error: Unknown option {flag} for vine {subcmd}" in (out + err)
+
+    # Test audit approve / reject unknown flags
+    code, out, err = run_vine("audit", "approve", "--invalid-audit-flag")
+    assert code == 2, f"Expected exit code 2, got {code}"
+    assert "Error: Unknown option --invalid-audit-flag for vine audit approve" in (out + err)
+
+
+def test_vine_weave_task_id_from_canonical_root():
+    """Verify 'vine weave <task_id>' works seamlessly when invoked from canonical repository root."""
+    with tempfile.TemporaryDirectory(prefix="vine_root_weave_") as repo_dir:
+        subprocess.run(["git", "init", "-b", "main", "-q", repo_dir], check=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.email", "agent@vine.mesh"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.name", "Vine Agent"], check=True)
+
+        os.makedirs(os.path.join(repo_dir, "src"), exist_ok=True)
+        with open(os.path.join(repo_dir, "src", "main.nim"), "w") as f:
+            f.write("echo \"main\"\n")
+        subprocess.run(["git", "-C", repo_dir, "add", "src/main.nim"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "commit", "-q", "-m", "Initial commit"], check=True)
+
+        task_id = f"task-root-weave-{int(time.time() * 1000)}"
+        code, out, err = run_vine("new", task_id, "--repo", repo_dir, "--branch", f"strand/{task_id}", "--worktree")
+        assert code == 0
+        strand_path = json.loads(out)["strand_path"]
+
+        try:
+            with open(os.path.join(strand_path, "src", "lib.nim"), "w") as f:
+                f.write("proc lib*(): int = 42\n")
+            with open(os.path.join(strand_path, "src", "main.nim"), "w") as f:
+                f.write("import lib\necho lib()\n")
+            subprocess.run(["git", "-C", strand_path, "add", "src/lib.nim", "src/main.nim"], check=True)
+            subprocess.run(["git", "-C", strand_path, "commit", "-q", "-m", "feat: add lib capability and consumer"], check=True)
+
+            # Submit from strand
+            sub_code, sub_out, sub_err = run_vine("submit", "--dir", strand_path, "--author", "rhizo-sequoia", "--allow-no-tests", "--json")
+            assert sub_code == 0, f"Submit failed: {sub_err}\nOut: {sub_out}"
+
+            # Auditor inspects diff
+            insp_code, _, _ = run_vine("audit", "inspect", "--dir", strand_path)
+            assert insp_code == 0
+
+            # Auditor ratifies Key 3
+            a_code, a_out, a_err = run_vine("audit", "approve", "--dir", strand_path, "--auditor", "rhizo-kestrel", "--evidence", "Verified lib.nim: lib proc and main.nim caller wired", "--json")
+            assert a_code == 0, f"Audit approve failed: {a_err}\nOut: {a_out}"
+
+            # Orchestrator runs 'vine weave <task_id>' from canonical root directory
+            w_code, w_out, w_err = run_vine("weave", task_id, cwd=repo_dir)
+            assert w_code == 0, f"Weave from canonical root failed: {w_err}\nOut: {w_out}"
+
+            # Verify canonical repo has the woven changes
+            assert os.path.exists(os.path.join(repo_dir, "src", "lib.nim"))
+            log = subprocess.run(["git", "-C", repo_dir, "log", "-1", "--pretty=%B"], capture_output=True, text=True, check=True).stdout
+            assert "feat: add lib capability and consumer" in log
 
         finally:
             if os.path.exists(strand_path):

@@ -237,11 +237,11 @@ stateDiagram-v2
 | `vine status [<task_id>] [--json]` | Inspects commits ahead/behind, metadata filtering, and lifecycle state. | `vine status --json` |
 | `vine collisions [--json]` | Forecasts file footprint overlaps across active strands before merge. | `vine collisions --json` |
 | `vine gate [--skeleton] [--json] [-- <cmd...>]` | Evaluates Keys 1 & 2 (mechanical merge-tree, live test suite, and changelog). Supports `--skeleton` (allows interface stubs without consumers, permits `UNIMPLEMENTED_CONTRACT`), `--allow-no-changelog`, `--ensure-unreleased`, and `-- <cmd...>`. | `vine gate --skeleton --json` |
-| `vine submit [--skeleton] [--author <name>] [--commit <msg>] [--listen]` | Worker command: evaluates Keys 1 & 2, auto-commits dirty working tree if requested, transitions strand to `READY_FOR_AUDIT`, and optionally enters foreground listener. Pass `--skeleton` for pre-plan contract stubs. | `vine submit --skeleton --author implementer --commit "feat: contract skeleton" --listen` |
+| `vine submit [--skeleton] [--author <agent_id>] [--commit <msg>] [--listen]` | Worker command: evaluates Keys 1 & 2, auto-commits dirty working tree if requested, transitions strand to `READY_FOR_AUDIT`, and optionally enters foreground listener. Pass `--skeleton` for pre-plan contract stubs. `--author` requires a unique agent ID (e.g. `rhizo-sequoia` from `rhizo name`), NEVER a role title like `implementer`. | `vine submit --skeleton --author rhizo-sequoia --commit "feat: contract skeleton" --listen` |
 | `vine audit inspect [<task_id>] [--json]` | Independent Auditor command: prints full production diff into auditor context and stamps `inspected_tree_sha` in Redis (mandatory before `approve`). | `vine audit inspect <task_id>` |
 | `vine audit status` | Queries current audit state, author, auditor, and rejection reasons. | `vine audit status --json` |
-| `vine audit approve --auditor <name> --evidence <text> [--ticket <hex>]` | Independent Auditor command: verifies Five Pillars, Keys 1 & 2, prior diff inspection (`inspected_tree_sha == merge_tree_sha`), delivery ticket, and substantive verification evidence citing changed files (>= 20 chars; cannot be bypassed with `--force`), stamps cryptographic `audit_token`, and marks `AUDIT_RATIFIED`. The Auditor only ratifies Key 3; the Lead Orchestrator executes `vine weave` (the Auditor is NEVER a merge clerk). | `vine audit approve <task_id> --auditor auditor-1 --ticket <hex> --evidence "Verified src/foo.nim:bar and tests/test_foo.py"` |
-| `vine audit reject --reason <text>` | Independent Auditor command: marks strand `AUDIT_REJECTED` and records defects for worker remediation. | `vine audit reject --reason "Missing consumer wire"` |
+| `vine audit approve --auditor <agent_id> --evidence <text> [--ticket <hex>]` | Independent Auditor command: verifies Five Pillars, Keys 1 & 2, prior diff inspection (`inspected_tree_sha == merge_tree_sha`), delivery ticket, and substantive verification evidence citing changed files (>= 20 chars; cannot be bypassed with `--force`), stamps cryptographic `audit_token`, and marks `AUDIT_RATIFIED`. `--auditor` requires a unique agent ID (e.g. `rhizo-kestrel` from `rhizo name`), NEVER a role title like `auditor`. The Auditor only ratifies Key 3; the Lead Orchestrator executes `vine weave` (the Auditor is NEVER a merge clerk). | `vine audit approve <task_id> --auditor rhizo-kestrel --ticket <hex> --evidence "Verified src/foo.nim:bar and tests/test_foo.py"` |
+| `vine audit reject --reason <text> --auditor <agent_id>` | Independent Auditor command: marks strand `AUDIT_REJECTED` and records defects for worker remediation. | `vine audit reject --reason "Missing consumer wire" --auditor rhizo-kestrel` |
 | `vine weave [--allow-unaudited]` | Fast-forwards verified and ratified strand into trunk and prunes workspace. Blocks un-audited strands unless `--allow-unaudited` or `--force`. | `vine weave` |
 | `vine changelog [entry]` | Appends entry to changelog under `## [Unreleased]`. Supports `--ensure-unreleased`, `--section <sec>`, and `--check`. | `vine changelog "Add feature"` |
 | `vine list` | Displays active strands, branch mappings, and manifests. | `vine list` |
@@ -270,7 +270,8 @@ Or ensure the section is scaffolded with `vine changelog --ensure-unreleased`.
 ### Step 3: Worker Verification & Strand Submission (`vine submit`)
 When work is complete and passes tests inside the strand:
 ```bash
-vine submit --author <worker_name>
+# Pass your unique agent ID allocated via 'rhizo name' (e.g. rhizo-sequoia), NEVER a generic role title like 'implementer'
+vine submit --author <agent_id>
 ```
 - Runs Key 1 (mechanical merge-tree) and Key 2 (semantic compiler/test runner + changelog).
 - If successful, records author and stamps strand as `READY_FOR_AUDIT`.
@@ -278,6 +279,7 @@ vine submit --author <worker_name>
 
 > [!CRITICAL]
 > **THE WORKER IS NOT THE AUDITOR**: Workers are strictly forbidden from approving their own strands. Calling `vine audit approve` with the same identity as author fails with exit code 6 (`ExitGateAuditViolation`).
+> **UNIQUE AGENT IDs, NOT ROLE NAMES (`ERR_ROLE_AS_ID`)**: `--author` and `--auditor` strictly require your session's unique codename ID (e.g. `rhizo-sequoia`, `rhizo-kestrel` allocated via `rhizo name`). Passing generic role titles (`implementer`, `auditor`, `architect`, etc.) is mechanically rejected with `ERR_ROLE_AS_ID` (exit code 1).
 
 ### Step 4: Independent Adversarial Audit (Key 3: Five-Pillar Audit Pump)
 The independent **Adversarial Auditor** inspects the strand at `strand_path`:
@@ -294,12 +296,12 @@ The independent **Adversarial Auditor** inspects the strand at `strand_path`:
    - **Structural Assertions**: Full object identity (`assert actual == expected`) and negative controls.
 3. If defects are found:
    ```bash
-   vine audit reject --reason "Defect description" --auditor <auditor_name>
+   vine audit reject --reason "Defect description" --auditor <auditor_agent_id>
    ```
    Worker remediates findings inside the strand through the **Delta Re-Pump Loop** and re-submits with `vine submit` (which clears inspection state).
 4. If 0 defects remain:
    ```bash
-   vine audit approve <task_id> --auditor <auditor_name> --ticket <hex> --evidence "Verified <file>:<symbol> and test <test_file>"
+   vine audit approve <task_id> --auditor <auditor_agent_id> --ticket <hex> --evidence "Verified <file>:<symbol> and test <test_file>"
    ```
    Requires authentic delivery ticket (cannot be bypassed with `--force`) and substantive verification evidence citing changed files and symbols (minimum 20 characters; cannot be bypassed with `--force`). Stamps cryptographic `audit_token` and transitions strand to `AUDIT_RATIFIED`. The Auditor only ratifies Key 3; the Lead Orchestrator executes `vine weave` (the Auditor is NEVER a merge clerk).
 

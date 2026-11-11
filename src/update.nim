@@ -318,6 +318,10 @@ proc doUpdateCommand*(
       skipVersion = args[i+1]; inc i
     elif a.startsWith("--skip="):
       skipVersion = a[7..^1]
+    elif a.startsWith("-"):
+      stderr.writeLine("Error: Unknown option " & a & " for vine update")
+      stderr.writeLine("Valid options: --check (-c), --apply (-a), --skip <pkg@ver>, --disable (-d), --enable (-e), --json")
+      return 2
     inc i
 
   var config = loadUpdatesConfig()

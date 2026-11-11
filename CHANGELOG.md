@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Strict Fail-Fast Author & Auditor Identity Resolution (`src/strand.nim`, `src/gate.nim`, `src/weave.nim`, `src/redis_client.nim`)**:
+  - Purged silent OS `$USER`/`$USERNAME` fallback across all subcommands (`vine submit`, `vine audit approve`, `vine audit reject`, `vine weave`).
+  - Added multi-tier resolution: explicit flag (`--author`, `--agent`, `--worker`, `--agent-id`, `--id`) -> `RHIZO_AGENT_ID` / `RHIZO_AGENT_NAME` -> `rhizo:sessions` reverse-lookup for current coding harness session IDs (`ANTIGRAVITY_CONVERSATION_ID`, `OPENCODE_SESSION_ID`, `PI_SESSION_ID`, `CLAUDE_CONVERSATION_ID`, `CODEX_SESSION_ID`, `RHIZO_SESSION_ID`) -> git config / manifest.
+  - If unresolved, fails fast with exit code 1 and actionable usage guidance.
+- **Role Name as Identity Rejection (`ERR_ROLE_AS_ID`) (`src/strand.nim`, `src/gate.nim`, `src/vine.nim`, `skills/vine/SKILL.md`)**:
+  - Added strict mechanical rejection when generic role titles (`implementer`, `auditor`, `architect`, `orchestrator`, `worker`, `builder`, `reviewer`, `lead`, `agent`, `default`, `eek`) or compound titles ending with `-implementer`, `-architect`, `-orchestrator` are passed as `--author` or `--auditor`.
+  - Exits code 1 with `ERR_ROLE_AS_ID` guidance instructing the agent to pass their sovereign unique codename allocated via `rhizo name` (e.g. `rhizo-sequoia`), unless explicitly bypassed via `--allow-role-id` or `VINE_ALLOW_ROLE_IDS=1`.
+  - Updated CLI usage strings, examples, and skill documents from role titles to `<agent_id>` with unique codename examples.
+- **Canonical Root Subcommand Execution (`src/weave.nim`, `src/gate.nim`, `src/strand.nim`, `src/vine.nim`)**:
+  - `vine weave <task_id>`, `vine gate <task_id>`, and `vine submit <task_id>` can now be executed directly from canonical repository root without `cd`-ing into the strand directory, resolving the strand path via `findStrandManifest(task_id)`.
+  - When invoked from canonical root without `<task_id>`, fails fast with exit code 1, displaying active strands (`vine list`) and command-specific usage.
+- **Intuitive Flag Synonyms & Strict Unknown Option Rejection (`src/vine.nim`, `src/update.nim`)**:
+  - Added synonyms across all subcommands: `<task_id>` positionally and via `--task <id>`, `--task-id <id>`, `--strand <id>`; `--base` / `-b`; `--dir` / `-d`; `--commit` / `--message` / `-m`; `--listen` / `-l`; `--evidence` / `--notes`; `--reason` / `--notes` / `--findings`.
+  - Replaced silent `else: discard` in option parsing loops with strict unknown-flag rejection (`elif a.startsWith("-"):`) that outputs valid flags and exits with code 2 across all subcommands.
+- **Auditor Merge-Clerk Decoupling: Retiring `--weave` on `audit approve` (`src/vine.nim`, `src/gate.nim`)**:
+  - Retired `--weave` on `vine audit approve`: auditors only ratify Key 3; the Lead Orchestrator executes `vine weave`.
+  - Passing `--weave` to `vine audit approve` fails fast with exit code 2 and explicit decoupling guidance.
+
 ## [0.2.19] - 2026-11-11
 
 ### Added

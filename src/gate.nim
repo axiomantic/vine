@@ -326,7 +326,8 @@ proc doBraidGate*(
   submit: bool = false,
   authorParam: string = "",
   allowDefeatDevices: bool = false,
-  isSkeleton: bool = false
+  isSkeleton: bool = false,
+  allowRoleId: bool = false
 ): tuple[output: JsonNode, exitCode: int] =
   var strandDir = if strandDirParam.len > 0: strandDirParam.normalizedPath else: getCurrentDir()
   var manifest = findStrandManifest(if strandDirParam.len > 0: strandDirParam else: branchParam)
@@ -334,6 +335,17 @@ proc doBraidGate*(
     manifest = findStrandManifest(strandDir)
   if manifest != nil and manifest.hasKey("strand_path") and dirExists(manifest["strand_path"].getStr):
     strandDir = manifest["strand_path"].getStr.normalizedPath
+
+  if manifest == nil and strandDirParam.len == 0:
+    let (bOut, bCode) = execCmdEx("git -C " & quoteShell(strandDir) & " rev-parse --abbrev-ref HEAD")
+    let curBranch = if bCode == 0: bOut.strip() else: ""
+    let (cfgOut, cfgCode) = execCmdEx("git -C " & quoteShell(strandDir) & " config vine.taskId")
+    let vineTaskId = if cfgCode == 0: cfgOut.strip() else: ""
+    if (curBranch in ["main", "master"] or curBranch.len == 0) and vineTaskId.len == 0 and (branchParam.len == 0 or branchParam in ["main", "master", "HEAD"]):
+      var errObj = newJObject()
+      errObj["status"] = %"error"
+      errObj["error"] = %formatActiveStrandsHelp(if submit: "submit" else: "gate", strandDir)
+      return (errObj, 1)
 
   let branch = if branchParam.len > 0 and execCmdEx("git -C " & quoteShell(strandDir) & " rev-parse --verify " & quoteShell(branchParam)).exitCode == 0:
                  branchParam
@@ -701,12 +713,18 @@ proc doBraidGate*(
     if isSkeleton:
       extraObj["is_skeleton"] = %"true"
     if submit:
-      var effAuthor = authorParam
+      var effAuthor = resolveStrandAuthor(authorParam, strandDir, manifest)
       if effAuthor.len == 0:
-        if manifest != nil and manifest.hasKey("author"): effAuthor = manifest["author"].getStr()
-        elif manifest != nil and manifest.hasKey("worker_name"): effAuthor = manifest["worker_name"].getStr()
-        elif getEnv("RHIZO_AGENT_NAME").len > 0: effAuthor = getEnv("RHIZO_AGENT_NAME")
-        else: effAuthor = getEnv("USER", "worker")
+        var errObj = newJObject()
+        errObj["status"] = %"error"
+        errObj["error"] = %"Error: Missing required --author <agent_id>. Usage: vine submit --author <your-agent-id> [--commit \"<msg>\"]"
+        return (errObj, 1)
+      let (vOk, vErr) = validateAgentId(effAuthor, allowRoleId)
+      if not vOk:
+        var errObj = newJObject()
+        errObj["status"] = %"error"
+        errObj["error"] = %vErr
+        return (errObj, 1)
       discard submitStrandRedis(strandTaskId, gateToken, effAuthor, effAuthor, treeSha, isSkeleton = isSkeleton)
       res["status"] = %"ready_for_audit"
       res["author"] = %effAuthor
@@ -715,10 +733,18 @@ proc doBraidGate*(
     else:
       discard updateGateRedis(strandTaskId, "GATE_PASSED", gateToken, treeSha, testOutputHash, extraJson = if extraObj.len > 0: $extraObj else: "")
   elif submit:
-    var effAuthor = authorParam
+    var effAuthor = resolveStrandAuthor(authorParam, strandDir, manifest)
     if effAuthor.len == 0:
-      if getEnv("RHIZO_AGENT_NAME").len > 0: effAuthor = getEnv("RHIZO_AGENT_NAME")
-      else: effAuthor = getEnv("USER", "worker")
+      var errObj = newJObject()
+      errObj["status"] = %"error"
+      errObj["error"] = %"Error: Missing required --author <agent_id>. Usage: vine submit --author <your-agent-id> [--commit \"<msg>\"]"
+      return (errObj, 1)
+    let (vOk, vErr) = validateAgentId(effAuthor, allowRoleId)
+    if not vOk:
+      var errObj = newJObject()
+      errObj["status"] = %"error"
+      errObj["error"] = %vErr
+      return (errObj, 1)
     res["status"] = %"ready_for_audit"
     res["author"] = %effAuthor
 
@@ -758,7 +784,8 @@ proc doStrandSubmit*(
   noNotify: bool = false,
   commitMsg: string = "",
   listen: bool = false,
-  isSkeleton: bool = false
+  isSkeleton: bool = false,
+  allowRoleId: bool = false
 ): tuple[output: JsonNode, exitCode: int] =
   var strandDir = if strandDirParam.len > 0: strandDirParam.normalizedPath else: getCurrentDir()
   var manifest = findStrandManifest(if strandDirParam.len > 0: strandDirParam else: strandDir)
@@ -772,29 +799,10 @@ proc doStrandSubmit*(
     let vineTaskId = if cfgCode == 0: cfgOut.strip() else: ""
 
     if (curBranch in ["main", "master"] or curBranch.len == 0) and vineTaskId.len == 0:
-      var singleStrand: JsonNode = nil
-      var activeCount = 0
-      let authorToCheck = if authorParam.len > 0: authorParam
-                          elif getEnv("RHIZO_AGENT_NAME").len > 0: getEnv("RHIZO_AGENT_NAME")
-                          else: getEnv("USER", "")
-      if authorToCheck.len > 0:
-        let allStrands = listStrandsRedis("", "")
-        if allStrands != nil and allStrands.hasKey("strands") and allStrands["strands"].kind == JArray:
-          for s in allStrands["strands"]:
-            let a = s.getOrDefault("author").getStr(s.getOrDefault("worker").getStr(""))
-            let st = s.getOrDefault("state").getStr(s.getOrDefault("status").getStr(""))
-            if a.toLowerAscii == authorToCheck.toLowerAscii and st notin ["WOVEN"]:
-              inc activeCount
-              singleStrand = s
-      if activeCount == 1 and singleStrand != nil:
-        manifest = singleStrand
-        if manifest.hasKey("strand_path") and dirExists(manifest["strand_path"].getStr):
-          strandDir = manifest["strand_path"].getStr.normalizedPath
-      else:
-        var errObj = newJObject()
-        errObj["status"] = %"error"
-        errObj["error"] = %"Error: Cannot run vine submit directly on canonical trunk. cd into your strand or pass <task_id>."
-        return (errObj, 1)
+      var errObj = newJObject()
+      errObj["status"] = %"error"
+      errObj["error"] = %formatActiveStrandsHelp("submit", strandDir)
+      return (errObj, 1)
 
   # Optional auto-commit if working directory is dirty before running gate validation
   var autoCommitted = false
@@ -813,16 +821,18 @@ proc doStrandSubmit*(
   let effectiveBase = if manifest != nil and manifest.hasKey("base_branch"): manifest["base_branch"].getStr() else: "main"
   let effectiveBranch = if manifest != nil and manifest.hasKey("branch"): manifest["branch"].getStr() else: "HEAD"
 
-  var effAuthor = authorParam
+  var effAuthor = resolveStrandAuthor(authorParam, strandDir, manifest)
   if effAuthor.len == 0:
-    if manifest != nil and manifest.hasKey("worker_name"):
-      effAuthor = manifest["worker_name"].getStr()
-    elif manifest != nil and manifest.hasKey("author"):
-      effAuthor = manifest["author"].getStr()
-    elif getEnv("RHIZO_AGENT_NAME").len > 0:
-      effAuthor = getEnv("RHIZO_AGENT_NAME")
-    else:
-      effAuthor = getEnv("USER", "worker")
+    var errObj = newJObject()
+    errObj["status"] = %"error"
+    errObj["error"] = %"Error: Missing required --author <agent_id>. Usage: vine submit --author <your-agent-id> [--commit \"<msg>\"]"
+    return (errObj, 1)
+  let (vOk, vErr) = validateAgentId(effAuthor, allowRoleId)
+  if not vOk:
+    var errObj = newJObject()
+    errObj["status"] = %"error"
+    errObj["error"] = %vErr
+    return (errObj, 1)
 
   let (gateRes, gateCode) = doBraidGate(
     branchParam = effectiveBranch,
@@ -837,7 +847,8 @@ proc doStrandSubmit*(
     submit = true,
     authorParam = effAuthor,
     allowDefeatDevices = allowDefeatDevices,
-    isSkeleton = isSkeleton
+    isSkeleton = isSkeleton,
+    allowRoleId = allowRoleId
   )
 
   if gateCode != 0:
@@ -893,6 +904,16 @@ proc doStrandAuditInspect*(
     manifest = findStrandManifest(taskIdParam)
 
   if manifest == nil:
+    let (bOut, bCode) = execCmdEx("git -C " & quoteShell(strandDir) & " rev-parse --abbrev-ref HEAD")
+    let curBranch = if bCode == 0: bOut.strip() else: ""
+    let (cfgOut, cfgCode) = execCmdEx("git -C " & quoteShell(strandDir) & " config vine.taskId")
+    let vineTaskId = if cfgCode == 0: cfgOut.strip() else: ""
+    if (curBranch in ["main", "master"] or curBranch.len == 0) and vineTaskId.len == 0:
+      var errObj = newJObject()
+      errObj["status"] = %"error"
+      errObj["error"] = %formatActiveStrandsHelp("audit inspect", strandDir)
+      return (errObj, 1)
+
     var errObj = newJObject()
     errObj["status"] = %"error"
     errObj["error"] = %"Strand manifest not found. Run from inside a strand directory or pass <task_id>."
@@ -936,7 +957,8 @@ proc doStrandAudit*(
   ticketParam: string = "",
   forceParam: bool = false,
   weaveParam: bool = false,
-  listenParam: bool = false
+  listenParam: bool = false,
+  allowRoleId: bool = false
 ): tuple[output: JsonNode, exitCode: int] =
   var strandDir = if strandDirParam.len > 0: strandDirParam.normalizedPath else: getCurrentDir()
   var manifest = findStrandManifest(if strandDirParam.len > 0: strandDirParam else: strandDir)
@@ -970,14 +992,17 @@ proc doStrandAudit*(
     return (res, 0)
 
   of "reject":
-    var auditor = auditorParam
-    if auditor.len == 0:
-      if getEnv("RHIZO_AGENT_NAME").len > 0: auditor = getEnv("RHIZO_AGENT_NAME")
-      else: auditor = getEnv("USER", "")
+    var auditor = resolveStrandAuditor(auditorParam)
     if auditor.len == 0:
       var errObj = newJObject()
       errObj["status"] = %"error"
-      errObj["error"] = %"Missing auditor: Specify --auditor <name> or set RHIZO_AGENT_NAME."
+      errObj["error"] = %"Error: Missing required --auditor <auditor-agent-id>. Usage: vine audit reject <task_id> --auditor <auditor-id> --ticket <hex> --reason \"...\""
+      return (errObj, 1)
+    let (vOk, vErr) = validateAgentId(auditor, allowRoleId)
+    if not vOk:
+      var errObj = newJObject()
+      errObj["status"] = %"error"
+      errObj["error"] = %vErr
       return (errObj, 1)
 
     let author = if manifest.hasKey("author"): manifest["author"].getStr()
@@ -1045,14 +1070,23 @@ proc doStrandAudit*(
     return (res, 0)
 
   of "approve", "ratify":
-    var auditor = auditorParam
-    if auditor.len == 0:
-      if getEnv("RHIZO_AGENT_NAME").len > 0: auditor = getEnv("RHIZO_AGENT_NAME")
-      else: auditor = getEnv("USER", "")
+    if weaveParam:
+      var errObj = newJObject()
+      errObj["status"] = %"error"
+      errObj["error"] = %"Error: --weave is no longer supported on vine audit approve (Auditor Merge-Clerk Decoupling). Auditors only ratify Key 3; the Lead Orchestrator executes vine weave."
+      return (errObj, 2)
+
+    var auditor = resolveStrandAuditor(auditorParam)
     if auditor.len == 0:
       var errObj = newJObject()
       errObj["status"] = %"error"
-      errObj["error"] = %"Missing auditor: Specify --auditor <name> or set RHIZO_AGENT_NAME."
+      errObj["error"] = %"Error: Missing required --auditor <auditor-agent-id>. Usage: vine audit approve <task_id> --auditor <auditor-id> --ticket <hex> --evidence \"...\""
+      return (errObj, 1)
+    let (vOk, vErr) = validateAgentId(auditor, allowRoleId)
+    if not vOk:
+      var errObj = newJObject()
+      errObj["status"] = %"error"
+      errObj["error"] = %vErr
       return (errObj, 1)
 
     let author = if manifest.hasKey("author"): manifest["author"].getStr()

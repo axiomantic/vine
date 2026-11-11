@@ -311,6 +311,87 @@ proc doStrandList*(repoDirParam: string = "", includeAll: bool = false): JsonNod
   res["strands"] = strands
   return res
 
+proc formatActiveStrandsHelp*(subcommand: string, repoDirParam: string = ""): string =
+  var msg = "Error: Cannot run vine " & subcommand & " directly on canonical trunk without a target task ID.\n"
+  let listData = doStrandList(repoDirParam, includeAll = false)
+  if listData.hasKey("strands") and listData["strands"].kind == JArray and listData["strands"].len > 0:
+    msg.add("Active strands:\n")
+    for s in listData["strands"]:
+      let tid = s.getOrDefault("task_id").getStr(s.getOrDefault("id").getStr(""))
+      let st = s.getOrDefault("status").getStr(s.getOrDefault("state").getStr("UNKNOWN"))
+      let p = s.getOrDefault("strand_path").getStr("")
+      msg.add("  - " & tid & " [" & st & "] (" & p & ")\n")
+  else:
+    msg.add("Active strands: (none)\n")
+  case subcommand
+  of "submit":
+    msg.add("Usage: vine submit <task_id> --author <agent_id> [--commit \"<msg>\"]")
+  of "weave":
+    msg.add("Usage: vine weave <task_id> [--base <ref>]")
+  of "gate":
+    msg.add("Usage: vine gate <task_id> [options]")
+  else:
+    msg.add("Usage: vine " & subcommand & " <task_id> [options]")
+  return msg
+
+const GenericRoles* = [
+  "implementer", "auditor", "architect", "orchestrator", "worker",
+  "builder", "reviewer", "lead", "agent", "default", "eek"
+]
+
+proc validateAgentId*(agentId: string, allowRoleId: bool = false): tuple[valid: bool, error: string] =
+  if allowRoleId or getEnv("VINE_ALLOW_ROLE_IDS", "") == "1":
+    return (true, "")
+  let lower = agentId.toLowerAscii.strip()
+  if lower.len == 0:
+    return (false, "Error: Missing required agent ID.")
+  if lower in GenericRoles or
+     lower.endsWith("-implementer") or
+     lower.endsWith("-architect") or
+     lower.endsWith("-orchestrator"):
+    return (false, "Error: ERR_ROLE_AS_ID: '" & agentId & "' is a role name, not a unique agent_id! Pass your session's unique codename ID (allocated via 'rhizo name', e.g. 'rhizo-sequoia'), never a role title like implementer or auditor.")
+  return (true, "")
+
+proc resolveStrandAuthor*(explicitAuthor: string = "", strandDir: string = "", manifest: JsonNode = nil): string =
+  if explicitAuthor.len > 0:
+    return explicitAuthor
+  let rhizoAgentId = getEnv("RHIZO_AGENT_ID", "").strip()
+  if rhizoAgentId.len > 0:
+    return rhizoAgentId
+  let rhizoAgent = getEnv("RHIZO_AGENT_NAME", "").strip()
+  if rhizoAgent.len > 0:
+    return rhizoAgent
+  let sessionAgent = resolveSessionAgent()
+  if sessionAgent.len > 0:
+    return sessionAgent
+  if strandDir.len > 0:
+    let (wOut, wCode) = execCmdEx("git -C " & quoteShell(strandDir) & " config vine.worker")
+    if wCode == 0 and wOut.strip().len > 0:
+      return wOut.strip()
+  if manifest != nil:
+    if manifest.hasKey("worker_name") and manifest["worker_name"].getStr.len > 0:
+      return manifest["worker_name"].getStr
+    if manifest.hasKey("author") and manifest["author"].getStr.len > 0:
+      return manifest["author"].getStr
+    if manifest.hasKey("worker") and manifest["worker"].getStr.len > 0:
+      return manifest["worker"].getStr
+  return ""
+
+proc resolveStrandAuditor*(explicitAuditor: string = ""): string =
+  if explicitAuditor.len > 0:
+    return explicitAuditor
+  let rhizoAgentId = getEnv("RHIZO_AGENT_ID", "").strip()
+  if rhizoAgentId.len > 0:
+    return rhizoAgentId
+  let rhizoAgent = getEnv("RHIZO_AGENT_NAME", "").strip()
+  if rhizoAgent.len > 0:
+    return rhizoAgent
+  let sessionAgent = resolveSessionAgent()
+  if sessionAgent.len > 0:
+    return sessionAgent
+  return ""
+
+
 proc doStrandPrune*(repoDirParam: string = "", maxAgeHours: float = 24.0, dryRun: bool = true): JsonNode =
   let listData = doStrandList(repoDirParam, includeAll = false)
   var pruned = newJArray()

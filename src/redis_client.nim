@@ -644,3 +644,62 @@ proc resolveStrandByPathRedis*(path: string, machineId: string = ""): JsonNode =
 
 proc pruneStrandRedis*(strandId: string): JsonNode =
   return evalStrandLua("prune", [strandId])
+
+# --- SESSION RESOLUTION HELPERS ---
+
+proc detectCurrentSessionKeys*(): seq[string] =
+  result = @[]
+  let agy = getEnv("ANTIGRAVITY_CONVERSATION_ID", "").strip()
+  if agy.len > 0:
+    result.add("agy:" & agy)
+    result.add("antigravity:" & agy)
+    result.add(agy)
+  let opencode = getEnv("OPENCODE_SESSION_ID", "").strip()
+  if opencode.len > 0:
+    result.add("opencode:" & opencode)
+    result.add(opencode)
+  let pi = getEnv("PI_SESSION_ID", "").strip()
+  if pi.len > 0:
+    result.add("pi:" & pi)
+    result.add(pi)
+  let claude = getEnv("CLAUDE_CONVERSATION_ID", getEnv("CLAUDE_SESSION_ID", "")).strip()
+  if claude.len > 0:
+    result.add("claude:" & claude)
+    result.add(claude)
+  let codex = getEnv("CODEX_SESSION_ID", "").strip()
+  if codex.len > 0:
+    result.add("codex:" & codex)
+    result.add(codex)
+  let custom = getEnv("RHIZO_SESSION_ID", "").strip()
+  if custom.len > 0:
+    result.add(custom)
+
+proc getRedisSessionAgent*(sessionKey: string): string =
+  if sessionKey.len == 0 or not isRedisAvailable(): return ""
+  let cfg = loadRedisConfig()
+  for hashKey in ["rhizo:sessions", cfg.prefix & "sessions", "sessions"]:
+    let resp = executeRawRedis(["HGET", hashKey, sessionKey])
+    if resp != nil:
+      if resp.kind == JObject and resp.hasKey("agent"):
+        let a = resp["agent"].getStr().strip()
+        if a.len > 0: return a
+      elif resp.kind == JString:
+        let s = resp.getStr().strip()
+        if s.startsWith("{") and s.endsWith("}"):
+          try:
+            let parsed = parseJson(s)
+            if parsed.kind == JObject and parsed.hasKey("agent"):
+              let a = parsed["agent"].getStr().strip()
+              if a.len > 0: return a
+          except CatchableError: discard
+        elif s.len > 0:
+          return s
+  return ""
+
+proc resolveSessionAgent*(): string =
+  let keys = detectCurrentSessionKeys()
+  for k in keys:
+    let a = getRedisSessionAgent(k)
+    if a.len > 0: return a
+  return ""
+
