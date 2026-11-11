@@ -104,7 +104,7 @@ proc getProjectsBaseDir*(): string =
     return envDir.normalizedPath
   return getHomeDir() / "Development"
 
-proc loadVineConfig*(configPath: string = ""): VineConfig =
+proc loadVineConfig*(configPath: string = "", startDir: string = ""): VineConfig =
   result = VineConfig(
     primaryBranch: "main",
     venvPolicy: "prompt",
@@ -117,9 +117,18 @@ proc loadVineConfig*(configPath: string = ""): VineConfig =
   )
 
   let envConfig = getEnv("VINE_CONFIG", "")
-  let path = if configPath.len > 0: configPath
-             elif envConfig.len > 0 and fileExists(envConfig): envConfig
-             else: findVineConfigPath()
+  var path = ""
+  if configPath.len > 0:
+    if fileExists(configPath): path = configPath
+  elif startDir.len > 0:
+    let candidate = findVineConfigPath(startDir)
+    if candidate.len > 0 and fileExists(candidate): path = candidate
+  elif envConfig.len > 0 and fileExists(envConfig):
+    path = envConfig
+  else:
+    let candidate = findVineConfigPath()
+    if candidate.len > 0 and fileExists(candidate): path = candidate
+
   if path.len > 0 and fileExists(path):
     result.activeConfigFile = path
     let toml = parseSimpleToml(readFile(path))

@@ -258,7 +258,7 @@ proc scanForDefeatDevices*(strandDir: string, diffBase: string, branch: string =
 
     if curFile.len == 0: continue
     let norm = curFile.toLowerAscii
-    if not (norm.startsWith("src/") or norm.startsWith("bin/") or norm.startsWith("lib/") or norm.startsWith("app/")):
+    if not (norm.startsWith("src/") or norm.startsWith("scripts/") or norm.startsWith("bin/") or norm.startsWith("lib/") or norm.startsWith("app/")):
       continue
     if norm.startsWith("tests/") or norm.startsWith("test/") or
        norm.contains("/test/") or norm.contains("/tests/") or
@@ -292,7 +292,20 @@ proc scanForDefeatDevices*(strandDir: string, diffBase: string, branch: string =
       let hasTheatricalMocks = lower.contains("epistemicquestions") or lower.contains("mockquestionnaire") or
                                lower.contains("isdeepprojectcreationquery")
 
-      if hasTheatricalMocks:
+      let hasMockFallback = lower.contains("lesmockfallback") or lower.contains("mockfallback")
+
+      let hasAblationToggle = lower.contains("ablation_applied") and (
+        lower.contains("if not ablation_applied") or lower.contains("if ablation_applied") or
+        lower.contains("if ") or lower.contains("elif ") or lower.contains("not ")
+      )
+
+      if hasMockFallback:
+        isInterceptor = true
+        reason = "lesMockFallback / MockFallback definition or reference detected in production code"
+      elif hasAblationToggle:
+        isInterceptor = true
+        reason = "Tautological benchmark toggle ('ablation_applied') detected in production code"
+      elif hasTheatricalMocks:
         isInterceptor = true
         reason = "Theatrical mock questionnaire or hardcoded project query interceptor detected"
       elif hasQueryVar and (hasBenchmarkKeywords or (lower.count(" or ") >= 1 and (lower.contains("\"") or lower.contains("'")))):
@@ -325,7 +338,8 @@ proc doBraidGate*(
   autoEnsureUnreleased: bool = false,
   submit: bool = false,
   authorParam: string = "",
-  allowDefeatDevices: bool = false
+  allowDefeatDevices: bool = false,
+  isSkeleton: bool = false
 ): tuple[output: JsonNode, exitCode: int] =
   var strandDir = if strandDirParam.len > 0: strandDirParam.normalizedPath else: getCurrentDir()
   var manifest = findStrandManifest(if strandDirParam.len > 0: strandDirParam else: branchParam)
@@ -345,10 +359,11 @@ proc doBraidGate*(
                  if code == 0: outp.strip() else: "HEAD"
 
   let baseRef = if baseRefParam.len > 0 and baseRefParam != "HEAD": baseRefParam
+                elif manifest != nil and manifest.hasKey("parent_branch") and manifest["parent_branch"].getStr().len > 0: manifest["parent_branch"].getStr()
                 elif manifest != nil and manifest.hasKey("base_branch"): manifest["base_branch"].getStr()
                 else: "HEAD"
 
-  let cfg = loadVineConfig(findVineConfigPath(strandDir))
+  let cfg = loadVineConfig(startDir = strandDir)
 
   var effectiveTimeout = 180.0
   let envTimeout = getEnv("VINE_GATE_TIMEOUT", "")
@@ -458,47 +473,50 @@ proc doBraidGate*(
         return (res, 3)
 
       # Invariant 2: Newly introduced capabilities must have a consumer call-site in application source files
-      for newCap in newCapabilities:
-        let capName = newCap.splitPath.tail.changeFileExt("") # e.g. "auth" from "src/auth.nim"
-        if capName.len < 2: continue
-        var hasConsumer = false
+      if isSkeleton:
+        res["two_point_diff"] = %"PASS (skeleton: contract stubs allowed without consumer call-site)"
+      else:
+        for newCap in newCapabilities:
+          let capName = newCap.splitPath.tail.changeFileExt("") # e.g. "auth" from "src/auth.nim"
+          if capName.len < 2: continue
+          var hasConsumer = false
 
-        # Check other changed application source files in diff
-        for (st, path) in diffStatuses:
-          if (path.startsWith("src/") or path.startsWith("bin/") or path.startsWith("lib/") or path.startsWith("app/")) and path != newCap:
-            let fullPath = strandDir / path
-            if fileExists(fullPath):
-              try:
-                if readFile(fullPath).contains(capName):
-                  hasConsumer = true
-                  break
-              except CatchableError: discard
+          # Check other changed application source files in diff
+          for (st, path) in diffStatuses:
+            if (path.startsWith("src/") or path.startsWith("bin/") or path.startsWith("lib/") or path.startsWith("app/")) and path != newCap:
+              let fullPath = strandDir / path
+              if fileExists(fullPath):
+                try:
+                  if readFile(fullPath).contains(capName):
+                    hasConsumer = true
+                    break
+                except CatchableError: discard
 
-        # If not in diff, search existing source files in application directories
-        if not hasConsumer:
-          for appSub in ["src", "bin", "lib", "app"]:
-            let appDir = strandDir / appSub
-            if dirExists(appDir):
-              for p in walkDirRec(appDir):
-                if p.normalizedPath != (strandDir / newCap).normalizedPath:
-                  try:
-                    if readFile(p).contains(capName):
-                      hasConsumer = true
-                      break
-                  except CatchableError: discard
-              if hasConsumer: break
+          # If not in diff, search existing source files in application directories
+          if not hasConsumer:
+            for appSub in ["src", "bin", "lib", "app"]:
+              let appDir = strandDir / appSub
+              if dirExists(appDir):
+                for p in walkDirRec(appDir):
+                  if p.normalizedPath != (strandDir / newCap).normalizedPath:
+                    try:
+                      if readFile(p).contains(capName):
+                        hasConsumer = true
+                        break
+                    except CatchableError: discard
+                if hasConsumer: break
 
-        if not hasConsumer:
-          res["status"] = %"two_point_diff_failed"
-          res["clean"] = %false
-          res["two_point_diff"] = %"FAIL"
-          res["two_point_diff_error"] = %("Two-Point Diff Violation: Newly introduced capability '" & newCap &
-            "' lacks a consumer call-site in application source files (src/, bin/, etc.). Shelfware without production caller is prohibited.")
-          if strandTaskId.len > 0:
-            recordGateFailure(strandTaskId, priorState, res["two_point_diff_error"].getStr())
-          return (res, 3)
+          if not hasConsumer:
+            res["status"] = %"two_point_diff_failed"
+            res["clean"] = %false
+            res["two_point_diff"] = %"FAIL"
+            res["two_point_diff_error"] = %("Two-Point Diff Violation: Newly introduced capability '" & newCap &
+              "' lacks a consumer call-site in application source files (src/, bin/, etc.). Shelfware without production caller is prohibited.")
+            if strandTaskId.len > 0:
+              recordGateFailure(strandTaskId, priorState, res["two_point_diff_error"].getStr())
+            return (res, 3)
 
-      res["two_point_diff"] = %"PASS"
+        res["two_point_diff"] = %"PASS"
 
       # --- CHANGELOG GATE (Unreleased Section Verification) ---
       let changelogFile = findChangelogFile(strandDir)
@@ -637,16 +655,20 @@ proc doBraidGate*(
         return (res, EXIT_GATE_TIMEOUT)
 
       if tCode != 0:
-        res["status"] = %"semantic_failure"
-        res["clean"] = %false
-        res["key2_semantic"] = %"FAIL"
-        res["compiler_output"] = %tOut.strip()
+        if isSkeleton and tOut.contains("UNIMPLEMENTED_CONTRACT"):
+          res["key2_semantic"] = %"PASS (skeleton: UNIMPLEMENTED_CONTRACT allowed)"
+        else:
+          res["status"] = %"semantic_failure"
+          res["clean"] = %false
+          res["key2_semantic"] = %"FAIL"
+          res["compiler_output"] = %tOut.strip()
 
-        if strandTaskId.len > 0:
-          recordGateFailure(strandTaskId, priorState, res["compiler_output"].getStr())
+          if strandTaskId.len > 0:
+            recordGateFailure(strandTaskId, priorState, res["compiler_output"].getStr())
 
-        return (res, 2)
-      res["key2_semantic"] = %"PASS"
+          return (res, 2)
+      else:
+        res["key2_semantic"] = %"PASS"
     elif allowNoTests:
       res["key2_semantic"] = %"SKIPPED (no test runner detected; allowed via --allow-no-tests)"
       testOutput = "NO_TESTS_ALLOWED"
@@ -674,6 +696,9 @@ proc doBraidGate*(
       return (res, 2)
 
   # Both Keys and Two-Point Diff Passed!
+  if isSkeleton:
+    res["is_skeleton"] = %true
+
   let testOutputHash = sha256(testOutput)
   let gateToken = computeGateToken(treeSha, testOutputHash)
 
@@ -685,6 +710,9 @@ proc doBraidGate*(
 
   # Update strand state in Redis (Zero On-Disk JSON)
   if strandTaskId.len > 0:
+    var extraObj = newJObject()
+    if isSkeleton:
+      extraObj["is_skeleton"] = %"true"
     if submit:
       var effAuthor = authorParam
       if effAuthor.len == 0:
@@ -692,13 +720,13 @@ proc doBraidGate*(
         elif manifest != nil and manifest.hasKey("worker_name"): effAuthor = manifest["worker_name"].getStr()
         elif getEnv("RHIZO_AGENT_NAME").len > 0: effAuthor = getEnv("RHIZO_AGENT_NAME")
         else: effAuthor = getEnv("USER", "worker")
-      discard submitStrandRedis(strandTaskId, gateToken, effAuthor, effAuthor, treeSha)
+      discard submitStrandRedis(strandTaskId, gateToken, effAuthor, effAuthor, treeSha, isSkeleton = isSkeleton)
       res["status"] = %"ready_for_audit"
       res["author"] = %effAuthor
     elif prevStatus == "AUDIT_RATIFIED" or prevStatus == "RATIFIED":
-      discard updateGateRedis(strandTaskId, "RATIFIED", gateToken, treeSha, testOutputHash)
+      discard updateGateRedis(strandTaskId, "RATIFIED", gateToken, treeSha, testOutputHash, extraJson = if extraObj.len > 0: $extraObj else: "")
     else:
-      discard updateGateRedis(strandTaskId, "GATE_PASSED", gateToken, treeSha, testOutputHash)
+      discard updateGateRedis(strandTaskId, "GATE_PASSED", gateToken, treeSha, testOutputHash, extraJson = if extraObj.len > 0: $extraObj else: "")
   elif submit:
     var effAuthor = authorParam
     if effAuthor.len == 0:
@@ -742,7 +770,8 @@ proc doStrandSubmit*(
   allowDefeatDevices: bool = false,
   noNotify: bool = false,
   commitMsg: string = "",
-  listen: bool = false
+  listen: bool = false,
+  isSkeleton: bool = false
 ): tuple[output: JsonNode, exitCode: int] =
   var strandDir = if strandDirParam.len > 0: strandDirParam.normalizedPath else: getCurrentDir()
   var manifest = findStrandManifest(if strandDirParam.len > 0: strandDirParam else: strandDir)
@@ -820,7 +849,8 @@ proc doStrandSubmit*(
     allowNoChangelog = allowNoChangelog,
     submit = true,
     authorParam = effAuthor,
-    allowDefeatDevices = allowDefeatDevices
+    allowDefeatDevices = allowDefeatDevices,
+    isSkeleton = isSkeleton
   )
 
   if gateCode != 0:
@@ -845,6 +875,8 @@ proc doStrandSubmit*(
   res["strand_path"] = %strandDir
   res["merge_tree_sha"] = gateRes.getOrDefault("merge_tree_sha")
   res["gate_token"] = gateRes.getOrDefault("gate_token")
+  if isSkeleton or (manifest != nil and manifest.getOrDefault("is_skeleton").getBool(false)):
+    res["is_skeleton"] = %true
   res["message"] = %"Strand passed Keys 1 & 2 and is submitted for independent Key 3 Adversarial Audit."
   if autoCommitted:
     res["auto_committed"] = %true
@@ -860,6 +892,49 @@ proc doStrandSubmit*(
     res["listen_exit_code"] = %lCode
     return (res, lCode)
 
+  return (res, 0)
+
+proc doStrandAuditInspect*(
+  strandDirParam: string = "",
+  taskIdParam: string = ""
+): tuple[output: JsonNode, exitCode: int] =
+  var strandDir = if strandDirParam.len > 0: strandDirParam.normalizedPath else: getCurrentDir()
+  var manifest = findStrandManifest(if taskIdParam.len > 0: taskIdParam elif strandDirParam.len > 0: strandDirParam else: strandDir)
+  if manifest == nil:
+    manifest = findStrandManifest(strandDir)
+  if manifest == nil and taskIdParam.len > 0:
+    manifest = findStrandManifest(taskIdParam)
+
+  if manifest == nil:
+    var errObj = newJObject()
+    errObj["status"] = %"error"
+    errObj["error"] = %"Strand manifest not found. Run from inside a strand directory or pass <task_id>."
+    return (errObj, 1)
+
+  let tid = manifest.getOrDefault("task_id").getStr(manifest.getOrDefault("id").getStr(taskIdParam))
+  if manifest.hasKey("strand_path") and dirExists(manifest["strand_path"].getStr):
+    strandDir = manifest["strand_path"].getStr.normalizedPath
+
+  let baseBranch = manifest.getOrDefault("base_branch").getStr("main")
+  let baseCommit = manifest.getOrDefault("base_commit").getStr("")
+  let diffBase = if baseCommit.len > 0: baseCommit else: baseBranch
+  let mergeTreeSha = getMergeTreeSha(strandDir, baseBranch)
+  let effectiveTreeSha = if mergeTreeSha.len > 0: mergeTreeSha else: manifest.getOrDefault("merge_tree_sha").getStr("")
+
+  let diffCmd = "git -C " & quoteShell(strandDir) & " diff " & quoteShell(diffBase) & "...HEAD -- . ':(exclude)*.lock' ':(exclude)*-lock.json' ':(exclude)*.log' ':(exclude).rhizo/*' ':(exclude).garden/*'"
+  let (diffOut, _) = try: execCmdEx(diffCmd) except CatchableError as e: (e.msg, 1)
+
+  # Stamp inspected_tree_sha and inspected_at in Redis
+  if tid.len > 0 and effectiveTreeSha.len > 0:
+    discard inspectStrandRedis(tid, effectiveTreeSha)
+
+  var res = newJObject()
+  res["status"] = %"OK"
+  res["task_id"] = %tid
+  res["strand_path"] = %strandDir
+  res["inspected_tree_sha"] = %effectiveTreeSha
+  res["base_ref"] = %diffBase
+  res["diff"] = %diffOut
   return (res, 0)
 
 proc doStrandAudit*(
@@ -894,6 +969,9 @@ proc doStrandAudit*(
 
   let normAction = action.toLowerAscii
   case normAction
+  of "inspect":
+    return doStrandAuditInspect(strandDir, tid)
+
   of "status":
     var res = newJObject()
     for key in ["task_id", "status", "lifecycle_state", "author", "auditor", "audit_token", "submitted_at", "audited_at", "rejected_at", "rejection_reason", "findings", "notes"]:
@@ -998,26 +1076,38 @@ proc doStrandAudit*(
       errObj["error"] = %("Self-audit violation: Worker '" & author & "' cannot audit their own strand. Key 3 requires an independent Adversarial Auditor created by the Orchestrator.")
       return (errObj, ExitGateAuditViolation)
 
-    # Ticket Verification
+    # Ticket Verification (Mandatory on approve; --force CANNOT bypass ticket verification)
     let ticketHash = if ticketParam.strip().len > 0: sha256(ticketParam.strip().toLowerAscii) else: ""
     let recordedTicketHash = manifest.getOrDefault("audit_ticket_hash").getStr("")
-    if not forceParam:
-      if recordedTicketHash.len > 0:
-        if ticketHash.len == 0 or ticketHash.toLowerAscii != recordedTicketHash.toLowerAscii:
-          var errObj = newJObject()
-          errObj["status"] = %"audit_violation"
-          errObj["error"] = %"Audit ticket violation: Missing or invalid --ticket <hex> from rhizo listen delivery."
-          return (errObj, ExitGateAuditViolation)
-      elif ticketHash.len > 0:
+    if recordedTicketHash.len > 0:
+      if ticketHash.len == 0 or ticketHash.toLowerAscii != recordedTicketHash.toLowerAscii:
         var errObj = newJObject()
         errObj["status"] = %"audit_violation"
         errObj["error"] = %"Audit ticket violation: Missing or invalid --ticket <hex> from rhizo listen delivery."
         return (errObj, ExitGateAuditViolation)
+    elif ticketHash.len > 0:
+      var errObj = newJObject()
+      errObj["status"] = %"audit_violation"
+      errObj["error"] = %"Audit ticket violation: Missing or invalid --ticket <hex> from rhizo listen delivery."
+      return (errObj, ExitGateAuditViolation)
 
     let currentStatus = manifest.getOrDefault("status").getStr("")
     let currentLifecycle = manifest.getOrDefault("lifecycle_state").getStr("")
     let gateToken = manifest.getOrDefault("gate_token").getStr("")
     let recordedTreeSha = manifest.getOrDefault("merge_tree_sha").getStr("")
+
+    # Mandatory Pre-Approval Inspection Check
+    var inspectedTreeSha = manifest.getOrDefault("inspected_tree_sha").getStr("")
+    if tid.len > 0:
+      let fresh = getStrandRedis(tid)
+      if fresh != nil and fresh.hasKey("inspected_tree_sha"):
+        inspectedTreeSha = fresh["inspected_tree_sha"].getStr("")
+
+    if recordedTreeSha.len > 0 and (inspectedTreeSha.len == 0 or inspectedTreeSha.toLowerAscii != recordedTreeSha.toLowerAscii):
+      var errObj = newJObject()
+      errObj["status"] = %"audit_violation"
+      errObj["error"] = %("Audit inspection required: Strand has not been inspected at current merge_tree_sha (" & recordedTreeSha & "). Run 'vine audit inspect " & (if tid.len > 0: tid else: strandDir) & "' to review the diff before approving.")
+      return (errObj, ExitGateAuditViolation)
 
     if gateToken.len == 0 or recordedTreeSha.len == 0 or
        (currentStatus notin ["READY_FOR_AUDIT", "READY_FOR_WEAVE", "GATE_PASSED", "SUBMITTED"] and
@@ -1055,7 +1145,7 @@ proc doStrandAudit*(
       errObj["error"] = %"Strand git tree has diverged since gate verification. Re-run 'vine gate' or 'vine submit'."
       return (errObj, ExitGateAuditViolation)
 
-    let auditCfg = loadVineConfig(findVineConfigPath(strandDir))
+    let auditCfg = loadVineConfig(startDir = strandDir)
     if not auditCfg.allowDefeatDevices:
       let defeatFindings = scanForDefeatDevices(strandDir, baseBranch, "HEAD")
       if defeatFindings.len > 0:

@@ -199,6 +199,11 @@ elseif action == "submit" then
         "author_pubkey", author_pubkey
     )
     redis.call('HDEL', strand_key, "last_gate_error")
+    redis.call('HSET', strand_key, "inspected_tree_sha", "")
+    local is_skeleton = ARGV[9] or ""
+    if is_skeleton == "1" or is_skeleton == "true" then
+        redis.call('HSET', strand_key, "is_skeleton", "true")
+    end
     if merge_tree_sha ~= "" then
         redis.call('HSET', strand_key, "merge_tree_sha", merge_tree_sha)
     end
@@ -273,16 +278,21 @@ elseif action == "ratify" then
     local ticket_hash = ARGV[9] or ""
     local force = (ARGV[10] == "1" or string.lower(ARGV[10] or "") == "true")
 
-    -- INVARIANT 0: Delivery Ticket Verification
+    -- INVARIANT 0: Delivery Ticket Verification (Mandatory; --force cannot bypass ticket verification)
     local recorded_ticket_hash = redis.call('HGET', strand_key, "audit_ticket_hash") or ""
-    if not force then
-        if recorded_ticket_hash ~= "" then
-            if ticket_hash == "" or string.lower(ticket_hash) ~= string.lower(recorded_ticket_hash) then
-                return redis.error_reply("ERR: Audit ticket violation: Missing or invalid --ticket <hex> from rhizo listen delivery.")
-            end
-        elseif ticket_hash ~= "" then
+    if recorded_ticket_hash ~= "" then
+        if ticket_hash == "" or string.lower(ticket_hash) ~= string.lower(recorded_ticket_hash) then
             return redis.error_reply("ERR: Audit ticket violation: Missing or invalid --ticket <hex> from rhizo listen delivery.")
         end
+    elseif ticket_hash ~= "" then
+        return redis.error_reply("ERR: Audit ticket violation: Missing or invalid --ticket <hex> from rhizo listen delivery.")
+    end
+
+    -- INVARIANT 0B: Mandatory Pre-Approval Inspection (vine audit inspect)
+    local merge_tree_sha = redis.call('HGET', strand_key, "merge_tree_sha") or ""
+    local inspected_tree_sha = redis.call('HGET', strand_key, "inspected_tree_sha") or ""
+    if merge_tree_sha ~= "" and (inspected_tree_sha == "" or string.lower(inspected_tree_sha) ~= string.lower(merge_tree_sha)) then
+        return redis.error_reply("ERR: Audit inspection violation: Strand has not been inspected at current merge_tree_sha (" .. merge_tree_sha .. "). Run 'vine audit inspect " .. strand_id .. "' before approving.")
     end
 
     -- INVARIANT 1: Independent Auditor (auditor_pubkey != author_pubkey)
@@ -754,6 +764,57 @@ elseif action == "set_audit_ticket" then
         status = "OK",
         id = strand_id,
         audit_ticket_hash = ticket_hash
+    })
+
+--------------------------------------------------------------------------------
+-- 12. ACTION: inspect
+-- ARGV[3]: strand_id
+-- ARGV[4]: inspected_tree_sha
+--------------------------------------------------------------------------------
+elseif action == "inspect" then
+    local strand_id = string.lower(ARGV[3] or "")
+    if strand_id == "" then
+        return redis.error_reply("ERR: Missing strand_id")
+    end
+
+    local strand_key = prefix .. "strand:" .. strand_id
+    if redis.call('EXISTS', strand_key) == 0 then
+        local sid = redis.call('HGET', prefix .. "strands:by_path", ARGV[3] or "")
+        if sid and sid ~= "" then
+            strand_id = string.lower(sid)
+            strand_key = prefix .. "strand:" .. strand_id
+        end
+    end
+
+    if redis.call('EXISTS', strand_key) == 0 then
+        return redis.error_reply("ERR: Strand '" .. strand_id .. "' does not exist")
+    end
+
+    local inspected_tree_sha = ARGV[4] or ""
+    if inspected_tree_sha == "" then
+        inspected_tree_sha = redis.call('HGET', strand_key, "merge_tree_sha") or ""
+    end
+
+    redis.call('HSET', strand_key,
+        "inspected_tree_sha", inspected_tree_sha,
+        "inspected_at", tostring(now)
+    )
+
+    if prefix ~= "" and prefix ~= "vine:" then
+        local vine_key = "vine:strand:" .. strand_id
+        if redis.call('EXISTS', vine_key) == 1 then
+            redis.call('HSET', vine_key,
+                "inspected_tree_sha", inspected_tree_sha,
+                "inspected_at", tostring(now)
+            )
+        end
+    end
+
+    return cjson.encode({
+        status = "OK",
+        id = strand_id,
+        inspected_tree_sha = inspected_tree_sha,
+        inspected_at = now
     })
 
 else

@@ -274,6 +274,10 @@ proc evalStrandLua*(action: string, args: openArray[string]): JsonNode =
     if mergeTreeSha.len > 0: s["merge_tree_sha"] = %mergeTreeSha
     if headCommit.len > 0: s["head_commit"] = %headCommit
     s.delete("last_gate_error")
+    s["inspected_tree_sha"] = %""
+    let isSkeleton = if args.len > 6: (args[6] == "1" or args[6].toLowerAscii == "true") else: false
+    if isSkeleton:
+      s["is_skeleton"] = %"true"
     gFallbackStrands[strandId] = s
     var res = newJObject()
     res["status"] = %"OK"
@@ -296,12 +300,18 @@ proc evalStrandLua*(action: string, args: openArray[string]): JsonNode =
       var err = newJObject(); err["error"] = %("Strand '" & strandId & "' does not exist"); return err
     var s = gFallbackStrands[strandId]
     let recordedTicketHash = s.getOrDefault("audit_ticket_hash").getStr("")
-    if not force:
-      if recordedTicketHash.len > 0:
-        if ticketHash.len == 0 or ticketHash.toLowerAscii != recordedTicketHash.toLowerAscii:
-          var err = newJObject(); err["error"] = %"Audit ticket violation: Missing or invalid --ticket <hex> from rhizo listen delivery."; return err
-      elif ticketHash.len > 0:
+    if recordedTicketHash.len > 0:
+      if ticketHash.len == 0 or ticketHash.toLowerAscii != recordedTicketHash.toLowerAscii:
         var err = newJObject(); err["error"] = %"Audit ticket violation: Missing or invalid --ticket <hex> from rhizo listen delivery."; return err
+    elif ticketHash.len > 0:
+      var err = newJObject(); err["error"] = %"Audit ticket violation: Missing or invalid --ticket <hex> from rhizo listen delivery."; return err
+
+    let recordedTreeSha = s.getOrDefault("merge_tree_sha").getStr("")
+    let inspectedTreeSha = s.getOrDefault("inspected_tree_sha").getStr("")
+    if recordedTreeSha.len > 0 and (inspectedTreeSha.len == 0 or inspectedTreeSha.toLowerAscii != recordedTreeSha.toLowerAscii):
+      var err = newJObject()
+      err["error"] = %("Audit inspection required: Strand has not been inspected at current merge_tree_sha (" & recordedTreeSha & "). Run 'vine audit inspect " & strandId & "' before approving.")
+      return err
 
     let author = s.getOrDefault("author").getStr("")
     let authorPub = s.getOrDefault("author_pubkey").getStr("")
@@ -506,6 +516,24 @@ proc evalStrandLua*(action: string, args: openArray[string]): JsonNode =
     res["audit_ticket_hash"] = %ticketHash
     return res
 
+  of "inspect":
+    let strandId = if args.len > 0: args[0].toLowerAscii else: ""
+    var inspectedTreeSha = if args.len > 1: args[1] else: ""
+    if not gFallbackStrands.hasKey(strandId):
+      var err = newJObject(); err["error"] = %("Strand '" & strandId & "' does not exist"); return err
+    var s = gFallbackStrands[strandId]
+    if inspectedTreeSha.len == 0:
+      inspectedTreeSha = s.getOrDefault("merge_tree_sha").getStr("")
+    s["inspected_tree_sha"] = %inspectedTreeSha
+    s["inspected_at"] = %(nowEpoch)
+    gFallbackStrands[strandId] = s
+    var res = newJObject()
+    res["status"] = %"OK"
+    res["id"] = %strandId
+    res["inspected_tree_sha"] = %inspectedTreeSha
+    res["inspected_at"] = %(nowEpoch)
+    return res
+
   else:
     var err = newJObject()
     err["error"] = %("Unknown action: " & action)
@@ -546,10 +574,14 @@ proc submitStrandRedis*(
   author: string = "",
   authorPubkey: string = "",
   mergeTreeSha: string = "",
-  headCommit: string = ""
+  headCommit: string = "",
+  isSkeleton: bool = false
 ): JsonNode =
   let effHead = if headCommit.len > 0: headCommit else: mergeTreeSha
-  return evalStrandLua("submit", [strandId, gateToken, author, authorPubkey, mergeTreeSha, effHead])
+  return evalStrandLua("submit", [strandId, gateToken, author, authorPubkey, mergeTreeSha, effHead, if isSkeleton: "1" else: "0"])
+
+proc inspectStrandRedis*(strandId: string, inspectedTreeSha: string = ""): JsonNode =
+  return evalStrandLua("inspect", [strandId, inspectedTreeSha])
 
 proc ratifyStrandRedis*(
   strandId: string,

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Pre-Plan Contract Skeleton Mode (`--skeleton`) (`src/vine.nim`, `src/gate.nim`, `src/redis_client.nim`, `scripts/strand.lua`, `src/strand.nim`)**:
+  - Added `--skeleton` flag to `vine gate` and `vine submit` for pre-plan contract skeleton strands (`strand/task-<slug>-skeleton` branching from `epic/<slug>` parent branches).
+  - Skips Two-Point Diff application consumer requirement for interface stubs, allowing shared types/headers/stubs in `src/` to be submitted without application callers yet (while still rejecting 100% test strands).
+  - Permits `UNIMPLEMENTED_CONTRACT` test failures during Key 2 test runner execution when `--skeleton` is active.
+  - Stamps `is_skeleton = true` in Redis strand state (`strand:<id>` and `vine:strand:<id>`).
+  - Exposed in `vine status` and `vine list --json`.
+- **Key 3 Audit Hardening: Mandatory `vine audit inspect` Diff Review (`src/vine.nim`, `src/gate.nim`, `src/redis_client.nim`, `scripts/strand.lua`)**:
+  - Added `vine audit inspect [<task_id>] [--json]` subcommand: displays the full production diff against base commit (filtering out lockfiles and artifacts) into the auditor's context window.
+  - Stamps `inspected_tree_sha` and `inspected_at` in Redis strand state upon inspection.
+  - Enforces that `vine audit approve` strictly requires `inspected_tree_sha == merge_tree_sha`, mechanically preventing approval without prior diff inspection (`ExitGateAuditViolation = 6`).
+  - Clears `inspected_tree_sha` upon any new `vine submit` or tree change, enforcing re-inspection.
+- **Strict Ticket Enforcement on `vine audit approve` (`src/gate.nim`, `scripts/strand.lua`, `src/redis_client.nim`)**:
+  - Removed `--force` ticket bypass from `vine audit approve`: if `audit_ticket_hash` is recorded on the strand, an authentic `--ticket <hex>` is strictly required, preventing unratified approvals even with `--force`.
+- **Expanded Key 2 Defeat-Device Scanner (`src/gate.nim`)**:
+  - Expanded `scanForDefeatDevices` to inspect both `src/` and `scripts/` trees.
+  - Detects and rejects `MockFallback` and `lesMockFallback` definitions, and tautological benchmark toggles (`if not ablation_applied:` / `if ablation_applied:`) with `ExitGateDefeatDeviceViolation = 7`.
+
 ## [0.2.18] - 2026-11-09
 
 ### Added

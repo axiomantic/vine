@@ -75,7 +75,7 @@ proc doStrandNew*(
 
   let repoDir = if repoDirParam.len > 0: repoDirParam.normalizedPath else: getRepoRoot()
   let projectName = repoDir.splitPath.tail
-  let cfg = loadVineConfig(repoDir / "vine.toml")
+  let cfg = loadVineConfig(startDir = repoDir)
 
   let branch = if branchParam.len > 0: branchParam else: "strand/" & taskId
   let effectiveParent = if parentBranch.len > 0: parentBranch
@@ -650,6 +650,11 @@ proc doStrandStatus*(strandDirOrId: string = ""): tuple[status: JsonNode, exitCo
     if manifest.hasKey("test_output_hash"): res["test_output_hash"] = manifest["test_output_hash"]
     if manifest.hasKey("rejection_reason"): res["rejection_reason"] = manifest["rejection_reason"]
     if manifest.hasKey("last_gate_error"): res["last_gate_error"] = manifest["last_gate_error"]
+    if manifest.hasKey("is_skeleton"):
+      let isSkel = manifest["is_skeleton"]
+      res["is_skeleton"] = %(isSkel.kind == JBool and isSkel.getBool or isSkel.kind == JString and isSkel.getStr == "true")
+    if manifest.hasKey("inspected_tree_sha"): res["inspected_tree_sha"] = manifest["inspected_tree_sha"]
+    if manifest.hasKey("inspected_at"): res["inspected_at"] = manifest["inspected_at"]
     if manifest.hasKey("machine_id"): res["machine_id"] = manifest["machine_id"]
 
   return (res, 0)

@@ -78,7 +78,7 @@ proc printSubcommandHelp*(subcmd: string, args: seq[string] = @[]): bool =
     echo "  --json                Output collisions as JSON"
     return true
   of "gate", "check":
-    echo "Usage: vine gate [branch] [--base <ref>] [--dir <path>] [--submit] [--author <name>] [--timeout <sec>] [--skip-tests] [--allow-no-tests] [--allow-test-only] [--allow-no-changelog] [--allow-defeat-devices] [--ensure-unreleased] [--test-command <cmd>] [--json] [-- <command...>]"
+    echo "Usage: vine gate [branch] [--base <ref>] [--dir <path>] [--submit] [--author <name>] [--timeout <sec>] [--skip-tests] [--allow-no-tests] [--allow-test-only] [--allow-no-changelog] [--allow-defeat-devices] [--skeleton] [--ensure-unreleased] [--test-command <cmd>] [--json] [-- <command...>]"
     echo ""
     echo "Options:"
     echo "  --base <ref>          Base reference to compare against (default: HEAD)"
@@ -91,12 +91,13 @@ proc printSubcommandHelp*(subcmd: string, args: seq[string] = @[]): bool =
     echo "  --allow-test-only     Allow test-only changes"
     echo "  --allow-no-changelog  Bypass mandatory changelog update check"
     echo "  --allow-defeat-devices Bypass defeat device detection"
+    echo "  --skeleton            Pre-plan contract skeleton mode (allows UNIMPLEMENTED_CONTRACT stubs)"
     echo "  --ensure-unreleased   Automatically ensure Unreleased section in changelog"
     echo "  --test-command <cmd>  Explicit command to execute tests"
     echo "  --json                Output gate results as JSON"
     return true
   of "submit":
-    echo "Usage: vine submit [task_id|path] [--dir <path>] [--author <name>] [--commit <msg>] [--listen] [--timeout <sec>] [--allow-no-tests] [--allow-test-only] [--allow-no-changelog] [--allow-defeat-devices] [--test-command <cmd>] [--no-notify] [--json]"
+    echo "Usage: vine submit [task_id|path] [--dir <path>] [--author <name>] [--commit <msg>] [--listen] [--timeout <sec>] [--allow-no-tests] [--allow-test-only] [--allow-no-changelog] [--allow-defeat-devices] [--skeleton] [--test-command <cmd>] [--no-notify] [--json]"
     echo ""
     echo "Options:"
     echo "  --dir <path>          Path to strand directory"
@@ -104,16 +105,21 @@ proc printSubcommandHelp*(subcmd: string, args: seq[string] = @[]): bool =
     echo "  --commit <msg>        Commit message for dirty changes"
     echo "  --listen              Arm single-shot rhizo listener after submission"
     echo "  --timeout <sec>       Test timeout in seconds"
+    echo "  --allow-no-tests      Allow passing without test runner"
+    echo "  --allow-test-only     Allow test-only changes"
+    echo "  --allow-no-changelog  Bypass mandatory changelog update check"
+    echo "  --allow-defeat-devices Bypass defeat device detection"
+    echo "  --skeleton            Pre-plan contract skeleton mode (allows UNIMPLEMENTED_CONTRACT stubs)"
     echo "  --no-notify           Silence Redis notifications"
     echo "  --json                Output submission result as JSON"
     return true
   of "audit":
-    echo "Usage: vine audit <approve|reject|status> [task_id|path] [--auditor <name>] [--ticket <hex>] [--force] [--listen] [--weave] [--reason <text>] [--notes <text>] [--findings <file>] [--dir <path>] [--no-notify] [--json]"
+    echo "Usage: vine audit <approve|reject|inspect|status> [task_id|path] [--auditor <name>] [--ticket <hex>] [--force] [--listen] [--weave] [--reason <text>] [--notes <text>] [--findings <file>] [--dir <path>] [--no-notify] [--json]"
     echo ""
     echo "Options:"
     echo "  --auditor <name>      Name of independent auditor"
-    echo "  --ticket <hex>        Delivery ticket hex from rhizo listen delivery"
-    echo "  --force               Bypass delivery ticket verification"
+    echo "  --ticket <hex>        Delivery ticket hex from rhizo listen delivery (strictly required for approve)"
+    echo "  --force               Bypass delivery ticket verification (reject only; banned on approve)"
     echo "  --listen              Arm single-shot rhizo listener after audit completion"
     echo "  --weave               Automatically weave strand into trunk upon approval"
     echo "  --reason <text>       Rejection reason"
@@ -352,6 +358,7 @@ proc main() =
     var timeoutSec = 0.0
     var testCmd = ""
     var jsonOut = false
+    var isSkeleton = false
     var i = 1
     while i < args.len:
       let a = args[i]
@@ -384,12 +391,13 @@ proc main() =
       elif a == "--allow-no-changelog": allowNoChangelog = true
       elif a == "--allow-defeat-devices": allowDefeatDevices = true
       elif a == "--ensure-unreleased": autoEnsureUnreleased = true
+      elif a == "--skeleton": isSkeleton = true
       elif a == "--submit": submit = true
       elif a == "--json": jsonOut = true
       elif not a.startsWith("-") and branch.len == 0:
         branch = a
       inc i
-    let (res, code) = doBraidGate(branch, baseRef, strandDir, skipTests, testCmd, allowNoTests, allowTestOnly, timeoutSec, allowNoChangelog, autoEnsureUnreleased, submit, author, allowDefeatDevices)
+    let (res, code) = doBraidGate(branch, baseRef, strandDir, skipTests, testCmd, allowNoTests, allowTestOnly, timeoutSec, allowNoChangelog, autoEnsureUnreleased, submit, author, allowDefeatDevices, isSkeleton = isSkeleton)
     if jsonOut:
       echo pretty(res)
     else:
@@ -401,6 +409,8 @@ proc main() =
         echo "  Mechanical: Clean (tree: " & res{"merge_tree_sha"}.getStr("") & " in " & $res{"mechanical_gate_ms"}.getFloat() & " ms)"
         if res.hasKey("test_command"):
           echo "  Semantic  : 100% Green (" & res{"test_command"}.getStr() & " in " & $res{"test_duration_ms"}.getFloat() & " ms)"
+        if res.hasKey("is_skeleton") and res["is_skeleton"].getBool(false):
+          echo "  Skeleton  : Contract Skeleton Mode (UNIMPLEMENTED_CONTRACT allowed)"
         if res.hasKey("changelog_gate"):
           echo "  Changelog : " & res{"changelog_gate"}.getStr()
         if res.hasKey("defeat_device_gate"):
@@ -443,11 +453,16 @@ proc main() =
     var noNotify = false
     var timeoutSec = 0.0
     var testCmd = ""
+    var isSkeleton = false
     var jsonOut = false
     var i = 1
     while i < args.len:
       let a = args[i]
-      if a == "--dir" and i + 1 < args.len:
+      if a == "--":
+        if i + 1 < args.len:
+          testCmd = args[i+1..^1].map(quoteShell).join(" ")
+        break
+      elif a == "--dir" and i + 1 < args.len:
         strandDir = args[i+1]; inc i
       elif a.startsWith("--dir="): strandDir = a[6..^1]
       elif a == "--author" and i + 1 < args.len:
@@ -471,6 +486,7 @@ proc main() =
       elif a == "--allow-test-only": allowTestOnly = true
       elif a == "--allow-no-changelog": allowNoChangelog = true
       elif a == "--allow-defeat-devices": allowDefeatDevices = true
+      elif a == "--skeleton": isSkeleton = true
       elif a == "--no-notify": noNotify = true
       elif a == "--json": jsonOut = true
       elif not a.startsWith("-") and strandDir.len == 0:
@@ -487,7 +503,8 @@ proc main() =
       allowDefeatDevices = allowDefeatDevices,
       noNotify = noNotify,
       commitMsg = commitMsg,
-      listen = false
+      listen = false,
+      isSkeleton = isSkeleton
     )
     if jsonOut:
       echo pretty(res)
@@ -498,6 +515,8 @@ proc main() =
         echo "  Author    : " & res{"author"}.getStr("")
         echo "  Gate Token: " & res{"gate_token"}.getStr("")
         echo "  Path      : " & res{"strand_path"}.getStr("")
+        if res.hasKey("is_skeleton") and res["is_skeleton"].getBool(false):
+          echo "  Skeleton  : Contract Skeleton Mode (UNIMPLEMENTED_CONTRACT allowed)"
         if res.hasKey("commit"):
           echo "  Committed : " & res{"commit"}.getStr("")
         if res.hasKey("notification") and res["notification"].hasKey("primary_mode"):
@@ -602,7 +621,20 @@ proc main() =
       echo pretty(res)
     else:
       if code == 0:
-        if subaction in ["approve", "ratify"]:
+        if subaction == "inspect":
+          let diffText = res.getOrDefault("diff").getStr("")
+          if diffText.strip().len > 0:
+            echo diffText
+          else:
+            echo "(no diff against base)"
+          echo "================================================================================"
+          echo "[INSPECTED] Strand diff inspected for Key 3 Adversarial Audit!"
+          echo "  Task ID           : " & res{"task_id"}.getStr("")
+          echo "  Inspected Tree SHA: " & res{"inspected_tree_sha"}.getStr("")
+          echo "  Base Reference    : " & res{"base_ref"}.getStr("")
+          echo "  Stamped in Redis  : Yes (ready for 'vine audit approve')"
+          echo "================================================================================"
+        elif subaction in ["approve", "ratify"]:
           echo "[RATIFIED] Key 3 Pre-Weave Adversarial Audit Passed!"
           echo "  Task ID    : " & res{"task_id"}.getStr("")
           echo "  Author     : " & res{"author"}.getStr("")

@@ -236,10 +236,11 @@ stateDiagram-v2
 | `vine new <task_id> --worktree` | Creates a strand using Git worktree fallback. | `vine new task-101 --worktree` |
 | `vine status [<task_id>] [--json]` | Inspects commits ahead/behind, metadata filtering, and lifecycle state. | `vine status --json` |
 | `vine collisions [--json]` | Forecasts file footprint overlaps across active strands before merge. | `vine collisions --json` |
-| `vine gate [--json] [-- <cmd...>]` | Evaluates Keys 1 & 2 (mechanical merge-tree, live test suite, and changelog). Supports `--allow-no-changelog`, `--ensure-unreleased`, and `-- <cmd...>`. | `vine gate --json -- nimble test` |
-| `vine submit [--author <name>] [--commit <msg>] [--listen]` | Worker command: evaluates Keys 1 & 2, auto-commits dirty working tree if requested, transitions strand to `READY_FOR_AUDIT`, and optionally enters foreground listener. | `vine submit --author implementer --commit "feat: add capability" --listen` |
+| `vine gate [--skeleton] [--json] [-- <cmd...>]` | Evaluates Keys 1 & 2 (mechanical merge-tree, live test suite, and changelog). Supports `--skeleton` (allows interface stubs without consumers, permits `UNIMPLEMENTED_CONTRACT`), `--allow-no-changelog`, `--ensure-unreleased`, and `-- <cmd...>`. | `vine gate --skeleton --json` |
+| `vine submit [--skeleton] [--author <name>] [--commit <msg>] [--listen]` | Worker command: evaluates Keys 1 & 2, auto-commits dirty working tree if requested, transitions strand to `READY_FOR_AUDIT`, and optionally enters foreground listener. Pass `--skeleton` for pre-plan contract stubs. | `vine submit --skeleton --author implementer --commit "feat: contract skeleton" --listen` |
+| `vine audit inspect [<task_id>] [--json]` | Independent Auditor command: prints full production diff into auditor context and stamps `inspected_tree_sha` in Redis (mandatory before `approve`). | `vine audit inspect <task_id>` |
 | `vine audit status` | Queries current audit state, author, auditor, and rejection reasons. | `vine audit status --json` |
-| `vine audit approve --auditor <name>` | Independent Auditor command: evaluates Five Pillars, verifies Keys 1 & 2, ensures `auditor != author`, stamps cryptographic `audit_token`, and marks `AUDIT_RATIFIED`. | `vine audit approve --auditor auditor-1` |
+| `vine audit approve --auditor <name> [--ticket <hex>] [--weave]` | Independent Auditor command: verifies Five Pillars, Keys 1 & 2, prior diff inspection (`inspected_tree_sha == merge_tree_sha`), and authentic delivery ticket (cannot be bypassed with `--force`), stamps cryptographic `audit_token`, and marks `AUDIT_RATIFIED`. | `vine audit approve --auditor auditor-1 --ticket <hex>` |
 | `vine audit reject --reason <text>` | Independent Auditor command: marks strand `AUDIT_REJECTED` and records defects for worker remediation. | `vine audit reject --reason "Missing consumer wire"` |
 | `vine weave [--allow-unaudited]` | Fast-forwards verified and ratified strand into trunk and prunes workspace. Blocks un-audited strands unless `--allow-unaudited` or `--force`. | `vine weave` |
 | `vine changelog [entry]` | Appends entry to changelog under `## [Unreleased]`. Supports `--ensure-unreleased`, `--section <sec>`, and `--check`. | `vine changelog "Add feature"` |
@@ -280,22 +281,27 @@ vine submit --author <worker_name>
 
 ### Step 4: Independent Adversarial Audit (Key 3: Five-Pillar Audit Pump)
 The independent **Adversarial Auditor** inspects the strand at `strand_path`:
-1. Verifies the Five Pillars under the presumption of guilt:
+1. Dumps the production diff and stamps inspection verification:
+   ```bash
+   vine audit inspect <task_id>
+   ```
+   *(Mandatory: `vine audit approve` mechanically fails if `vine audit inspect` has not verified the current `merge_tree_sha`).*
+2. Verifies the Five Pillars under the presumption of guilt:
    - **Two-Point Diff**: Both Provider and live Consumer call-site wired.
    - **Holistic Integration**: Real state and error handling (no fake mocks or stubs).
    - **Literal Fidelity Mandate**: Literal adherence to operator directives and exact functional parity with reference specifications.
    - **Replacement Purge**: All obsolete code and fallbacks deleted.
    - **Structural Assertions**: Full object identity (`assert actual == expected`) and negative controls.
-2. If defects are found:
+3. If defects are found:
    ```bash
    vine audit reject --reason "Defect description" --auditor <auditor_name>
    ```
-   Worker remediates findings inside the strand through the **Delta Re-Pump Loop** and re-submits with `vine submit`.
-3. If 0 defects remain:
+   Worker remediates findings inside the strand through the **Delta Re-Pump Loop** and re-submits with `vine submit` (which clears inspection state).
+4. If 0 defects remain:
    ```bash
-   vine audit approve --auditor <auditor_name>
+   vine audit approve --auditor <auditor_name> --ticket <hex>
    ```
-   Stamps cryptographic `audit_token` and transitions strand to `AUDIT_RATIFIED`.
+   Requires authentic delivery ticket (cannot be bypassed with `--force`), stamps cryptographic `audit_token`, and transitions strand to `AUDIT_RATIFIED`.
 
 ### Step 5: Trunk Weaving & Post-Push CI Verification
 The Lead Orchestrator weaves the ratified strand:
