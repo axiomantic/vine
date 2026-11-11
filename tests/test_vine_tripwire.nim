@@ -16,12 +16,13 @@ proc createTestGitRepo(prefix: string): string =
   let repo = getTempDir() / (prefix & "_" & $getCurrentProcessId() & "_" & $testRepoCounter)
   removeDir(repo)
   createDir(repo)
-  discard execCmdEx("git init -b main -q " & quoteShell(repo))
-  discard execCmdEx("git -C " & quoteShell(repo) & " config user.email agent@braid.mesh")
-  discard execCmdEx("git -C " & quoteShell(repo) & " config user.name 'Braid Agent'")
-  writeFile(repo / "README.md", "# Test Repo\n")
-  discard execCmdEx("git -C " & quoteShell(repo) & " add README.md")
-  discard execCmdEx("git -C " & quoteShell(repo) & " commit -q -m 'Initial commit'")
+  {.noRewrite.}:
+    discard execCmdEx("git init -b main -q " & quoteShell(repo))
+    discard execCmdEx("git -C " & quoteShell(repo) & " config user.email agent@braid.mesh")
+    discard execCmdEx("git -C " & quoteShell(repo) & " config user.name 'Braid Agent'")
+    writeFile(repo / "README.md", "# Test Repo\n")
+    discard execCmdEx("git -C " & quoteShell(repo) & " add README.md")
+    discard execCmdEx("git -C " & quoteShell(repo) & " commit -q -m 'Initial commit'")
   return repo
 
 suite "Vine Native Tripwire Git Passthrough Suite":

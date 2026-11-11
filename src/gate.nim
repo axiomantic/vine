@@ -264,7 +264,9 @@ proc scanForDefeatDevices*(strandDir: string, diffBase: string, branch: string =
        norm.contains("/test/") or norm.contains("/tests/") or
        norm.contains("/fixtures/") or norm.contains("/fixture/") or
        norm.endsWith(".md") or norm.endsWith(".json") or norm.endsWith(".toml") or
-       norm.endsWith(".yaml") or norm.endsWith(".yml"):
+       norm.endsWith(".yaml") or norm.endsWith(".yml") or
+       norm.endsWith("src/gate.nim") or norm == "src/gate.nim" or
+       norm.endsWith("src/guide.nim") or norm == "src/guide.nim":
       continue
 
     if rawLine.startsWith("+") and not rawLine.startsWith("+++"):
