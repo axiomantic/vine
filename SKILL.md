@@ -240,7 +240,7 @@ stateDiagram-v2
 | `vine submit [--skeleton] [--author <name>] [--commit <msg>] [--listen]` | Worker command: evaluates Keys 1 & 2, auto-commits dirty working tree if requested, transitions strand to `READY_FOR_AUDIT`, and optionally enters foreground listener. Pass `--skeleton` for pre-plan contract stubs. | `vine submit --skeleton --author implementer --commit "feat: contract skeleton" --listen` |
 | `vine audit inspect [<task_id>] [--json]` | Independent Auditor command: prints full production diff into auditor context and stamps `inspected_tree_sha` in Redis (mandatory before `approve`). | `vine audit inspect <task_id>` |
 | `vine audit status` | Queries current audit state, author, auditor, and rejection reasons. | `vine audit status --json` |
-| `vine audit approve --auditor <name> [--ticket <hex>] [--weave]` | Independent Auditor command: verifies Five Pillars, Keys 1 & 2, prior diff inspection (`inspected_tree_sha == merge_tree_sha`), and authentic delivery ticket (cannot be bypassed with `--force`), stamps cryptographic `audit_token`, and marks `AUDIT_RATIFIED`. | `vine audit approve --auditor auditor-1 --ticket <hex>` |
+| `vine audit approve --auditor <name> --evidence <text> [--ticket <hex>]` | Independent Auditor command: verifies Five Pillars, Keys 1 & 2, prior diff inspection (`inspected_tree_sha == merge_tree_sha`), delivery ticket, and substantive verification evidence citing changed files (>= 20 chars; cannot be bypassed with `--force`), stamps cryptographic `audit_token`, and marks `AUDIT_RATIFIED`. The Auditor only ratifies Key 3; the Lead Orchestrator executes `vine weave` (the Auditor is NEVER a merge clerk). | `vine audit approve <task_id> --auditor auditor-1 --ticket <hex> --evidence "Verified src/foo.nim:bar and tests/test_foo.py"` |
 | `vine audit reject --reason <text>` | Independent Auditor command: marks strand `AUDIT_REJECTED` and records defects for worker remediation. | `vine audit reject --reason "Missing consumer wire"` |
 | `vine weave [--allow-unaudited]` | Fast-forwards verified and ratified strand into trunk and prunes workspace. Blocks un-audited strands unless `--allow-unaudited` or `--force`. | `vine weave` |
 | `vine changelog [entry]` | Appends entry to changelog under `## [Unreleased]`. Supports `--ensure-unreleased`, `--section <sec>`, and `--check`. | `vine changelog "Add feature"` |
@@ -299,9 +299,9 @@ The independent **Adversarial Auditor** inspects the strand at `strand_path`:
    Worker remediates findings inside the strand through the **Delta Re-Pump Loop** and re-submits with `vine submit` (which clears inspection state).
 4. If 0 defects remain:
    ```bash
-   vine audit approve --auditor <auditor_name> --ticket <hex>
+   vine audit approve <task_id> --auditor <auditor_name> --ticket <hex> --evidence "Verified <file>:<symbol> and test <test_file>"
    ```
-   Requires authentic delivery ticket (cannot be bypassed with `--force`), stamps cryptographic `audit_token`, and transitions strand to `AUDIT_RATIFIED`.
+   Requires authentic delivery ticket (cannot be bypassed with `--force`) and substantive verification evidence citing changed files and symbols (minimum 20 characters; cannot be bypassed with `--force`). Stamps cryptographic `audit_token` and transitions strand to `AUDIT_RATIFIED`. The Auditor only ratifies Key 3; the Lead Orchestrator executes `vine weave` (the Auditor is NEVER a merge clerk).
 
 ### Step 5: Trunk Weaving & Post-Push CI Verification
 The Lead Orchestrator weaves the ratified strand:

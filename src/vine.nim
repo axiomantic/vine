@@ -114,16 +114,17 @@ proc printSubcommandHelp*(subcmd: string, args: seq[string] = @[]): bool =
     echo "  --json                Output submission result as JSON"
     return true
   of "audit":
-    echo "Usage: vine audit <approve|reject|inspect|status> [task_id|path] [--auditor <name>] [--ticket <hex>] [--force] [--listen] [--weave] [--reason <text>] [--notes <text>] [--findings <file>] [--dir <path>] [--no-notify] [--json]"
+    echo "Usage: vine audit <approve|reject|inspect|status> [task_id|path] [--auditor <name>] [--ticket <hex>] [--evidence <text>] [--notes <text>] [--reason <text>] [--findings <file>] [--dir <path>] [--no-notify] [--json]"
     echo ""
     echo "Options:"
     echo "  --auditor <name>      Name of independent auditor"
     echo "  --ticket <hex>        Delivery ticket hex from rhizo listen delivery (strictly required for approve)"
+    echo "  --evidence <text>     Substantive verification evidence citing changed files and symbols (strictly required for approve)"
+    echo "  --notes <text>        Approval or review notes (alias for --evidence)"
+    echo "  --reason <text>       Rejection reason (strictly required for reject)"
     echo "  --force               Bypass delivery ticket verification (reject only; banned on approve)"
     echo "  --listen              Arm single-shot rhizo listener after audit completion"
-    echo "  --weave               Automatically weave strand into trunk upon approval"
-    echo "  --reason <text>       Rejection reason"
-    echo "  --notes <text>        Approval or review notes"
+    echo "  --weave               Automatically weave strand into trunk upon approval (legacy convenience; orchestrator executes vine weave)"
     echo "  --findings <file>     Path to audit findings file"
     echo "  --dir <path>          Path to strand directory"
     echo "  --no-notify           Silence Redis notifications"
@@ -568,6 +569,7 @@ proc main() =
     var auditor = ""
     var reason = ""
     var notes = ""
+    var evidence = ""
     var findingsFile = ""
     var ticket = ""
     var force = false
@@ -593,6 +595,9 @@ proc main() =
       elif a == "--reason" and i + 1 < args.len:
         reason = args[i+1]; inc i
       elif a.startsWith("--reason="): reason = a[9..^1]
+      elif a == "--evidence" and i + 1 < args.len:
+        evidence = args[i+1]; inc i
+      elif a.startsWith("--evidence="): evidence = a[11..^1]
       elif a == "--notes" and i + 1 < args.len:
         notes = args[i+1]; inc i
       elif a.startsWith("--notes="): notes = a[8..^1]
@@ -611,6 +616,7 @@ proc main() =
       reasonParam = reason,
       findingsFileParam = findingsFile,
       notesParam = notes,
+      evidenceParam = evidence,
       noNotify = noNotify,
       ticketParam = ticket,
       forceParam = force,

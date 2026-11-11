@@ -42,7 +42,7 @@ npm install -g @axiomantic/rhizo @axiomantic/vine
 * **Closed-Circuit Two-Point Diff & Holistic Integration Mandate**:
   Never construct isolated code in a vacuum. Every strand deliverable must contain both a Provider (new capability) and an active Consumer call-site (live entrypoint, router, CLI dispatcher, or UI). Modules tested solely by their own test suites are strictly prohibited as incomplete shelfware. Furthermore, the integration must be holistic (no toys, stubs, mocks, or shallow heuristics). Any legacy or obsolete code targeted for replacement MUST be deleted in the same strand—never preserved as a vestigial fallback or commented out.
 * **Anti-Defeat-Device & Anti-Theatrical Interceptor Mandate**:
-  Prompt keyword interceptors (e.g. `if 'flight game' in q or 'webworker' in q`), theatrical mock questionnaires in generic runtimes that bypass genuine neural/radar/algorithmic pipelines to fake benchmark compliance, mock fallback enums/flags (`MockFallback`, `lesMockFallback`), and tautological benchmark toggles (`ablation_applied`) are strictly prohibited across `src/` and `scripts/`. Mechanically caught by `vine gate` (Exit 7: `ExitGateDefeatDeviceViolation`) and instantly rejected at Key 3 as critical defects.
+  Prompt keyword interceptors (e.g. prompt-matching query branches targeting specific benchmark tasks) and theatrical mock questionnaires in generic runtimes that bypass genuine neural/radar/algorithmic pipelines to fake benchmark compliance are strictly prohibited across `src/` and `scripts/`. Mechanically caught by `vine gate` (Exit 7: `ExitGateDefeatDeviceViolation`) and instantly rejected at Key 3 as critical defects.
 * **Autonomous Intensive Audit Mandate (Authorized SOP)**:
   Intensive Five-Pillar adversarial audits (Key 3) are Standard Operating Procedure (SOP). They are pre-authorized, mandatory, and autonomous across the Triad. Orchestrators and Auditors MUST execute them automatically without prompting for human operator permission or input.
 * **Literal Fidelity & Reference Parity Mandate (Anti-Approximation)**:
@@ -189,6 +189,7 @@ Execute the Five-Pillar adversarial code audit under the presumption of guilt:
 Remediate findings through the **Delta Re-Pump Loop** until 0 defects remain.
 * **Mandatory Diff Inspection**: Auditors MUST execute `vine audit inspect [<task_id>]` before approving. `vine audit approve` strictly enforces `inspected_tree_sha == merge_tree_sha`.
 * **Strict Ticket Verification**: When an audit ticket is set, `--ticket <hex>` is strictly required on `vine audit approve` and cannot be bypassed with `--force`.
+* **Evidence-Bound Approval**: `vine audit approve` strictly requires `--evidence "<text>"` (>= 20 characters citing at least one actual changed file from the diff, e.g. `vine audit approve <task_id> --auditor <name> --ticket <hex> --evidence "Verified <file>:<symbol> and test <test_file>"`). Generic rubber-stamps without specific file citations are rejected (`ExitGateAuditViolation = 6`). The Auditor only ratifies Key 3; the Lead Orchestrator executes `vine weave` (the Auditor is NEVER a merge clerk).
 
 #### Step 3: Weave into Canonical Trunk
 Once Key 1, Key 2, and Key 3 pass 100% green:

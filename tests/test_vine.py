@@ -224,7 +224,7 @@ def test_vine_strand_lifecycle_and_gate():
             assert insp_code == 0
 
             # Independent auditor ratifies
-            aud_code, aud_out, aud_err = run_vine("audit", "approve", strand_path, "--auditor", "auditor-bob", "--notes", "Passes Key 3", "--json")
+            aud_code, aud_out, aud_err = run_vine("audit", "approve", strand_path, "--auditor", "auditor-bob", "--evidence", "Verified feature.txt: feature line verified across call sites", "--json")
             assert aud_code == 0, f"Audit approval failed code {aud_code}: {aud_err} Out: {aud_out}"
             aud_data = json.loads(aud_out)
             assert aud_data["status"] == "audit_ratified"
@@ -1041,7 +1041,7 @@ def test_vine_key3_adversarial_audit_lifecycle():
             # 12. Independent auditor approves
             app_code, app_out, app_err = run_vine(
                 "audit", "approve", strand_path, "--auditor", "auditor-rex",
-                "--notes", "Input validation ratified across all call sites", "--json"
+                "--evidence", "Input validation ratified in engine.py across all call sites", "--json"
             )
             assert app_code == 0, f"Approval failed: {app_err}"
             app_data = json.loads(app_out)
@@ -1346,8 +1346,8 @@ def test_vine_delivery_ticket_verification():
             assert a_code_force == 6
             assert "Audit ticket violation" in (a_out_force + a_err_force)
 
-            # 6. Valid ticket with inspect passes -> Exit 0
-            a_code_ok, a_out_ok, a_err_ok = run_vine("audit", "approve", "--dir", strand_path, "--auditor", "auditor-charlie", "--ticket", ticket2, "--json")
+            # 6. Valid ticket with inspect and evidence passes -> Exit 0
+            a_code_ok, a_out_ok, a_err_ok = run_vine("audit", "approve", "--dir", strand_path, "--auditor", "auditor-charlie", "--ticket", ticket2, "--evidence", "Verified feature.nim: implement feature verified", "--json")
             assert a_code_ok == 0, f"Approve failed: {a_err_ok}\nOut: {a_out_ok}"
             assert json.loads(a_out_ok)["status"] == "audit_ratified"
 
@@ -1392,7 +1392,7 @@ def test_vine_audit_approve_weave():
             assert insp_code == 0
 
             # Audit approve with --weave
-            a_code, a_out, a_err = run_vine("audit", "approve", "--dir", strand_path, "--auditor", "auditor-a", "--weave", "--json")
+            a_code, a_out, a_err = run_vine("audit", "approve", "--dir", strand_path, "--auditor", "auditor-a", "--evidence", "Verified helper.nim: help proc and caller verified", "--weave", "--json")
             assert a_code == 0, f"Audit approve --weave failed: {a_err}\nOut: {a_out}"
             data = json.loads(a_out)
             assert data["status"] == "audit_ratified"
@@ -1537,8 +1537,8 @@ def test_vine_audit_inspect_and_ticket_hardening():
             assert insp_data["status"] in ["OK", "inspected"]
             assert "inspected_tree_sha" in insp_data
 
-            # 3. With inspected_tree_sha stamped, approve succeeds -> Exit 0
-            app_ok_code, app_ok_out, _ = run_vine("audit", "approve", "--dir", strand_path, "--auditor", "auditor-judge", "--json")
+            # 3. With inspected_tree_sha stamped and substantive evidence, approve succeeds -> Exit 0
+            app_ok_code, app_ok_out, _ = run_vine("audit", "approve", "--dir", strand_path, "--auditor", "auditor-judge", "--evidence", "Verified feature.py: feat implementation verified", "--json")
             assert app_ok_code == 0
             assert json.loads(app_ok_out)["status"] == "audit_ratified"
 
@@ -1549,52 +1549,61 @@ def test_vine_audit_inspect_and_ticket_hardening():
                 shutil.rmtree(os.path.dirname(os.path.dirname(strand_path)), ignore_errors=True)
 
 
-def test_vine_defeat_device_expansion():
-    """Verify rejection of MockFallback and ablation toggles in src/ and scripts/ directories."""
-    with tempfile.TemporaryDirectory(prefix="vine_defeat_exp_") as repo_dir:
+def test_vine_evidence_bound_audit_approval():
+    """Verify evidence-bound approval: requires --evidence (or --notes) >= 20 chars citing a changed file basename."""
+    with tempfile.TemporaryDirectory(prefix="vine_evid_") as repo_dir:
         subprocess.run(["git", "init", "-b", "main", "-q", repo_dir], check=True)
         subprocess.run(["git", "-C", repo_dir, "config", "user.email", "agent@vine.mesh"], check=True)
         subprocess.run(["git", "-C", repo_dir, "config", "user.name", "Vine Agent"], check=True)
 
         os.makedirs(os.path.join(repo_dir, "src"), exist_ok=True)
-        with open(os.path.join(repo_dir, "src", "init.py"), "w") as f:
-            f.write("# Init\n")
-        subprocess.run(["git", "-C", repo_dir, "add", "src/init.py"], check=True)
+        with open(os.path.join(repo_dir, "src", "base.py"), "w") as f:
+            f.write("# Base\n")
+        subprocess.run(["git", "-C", repo_dir, "add", "src/base.py"], check=True)
         subprocess.run(["git", "-C", repo_dir, "commit", "-q", "-m", "Initial commit"], check=True)
 
-        task_id = f"task-defeat-exp-{int(time.time() * 1000)}"
+        task_id = f"task-evid-{int(time.time() * 1000)}"
         code, out, err = run_vine("new", task_id, "--repo", repo_dir, "--worktree")
         assert code == 0
         strand_path = json.loads(out)["strand_path"]
 
         try:
-            # Case 1: MockFallback in scripts/
-            os.makedirs(os.path.join(strand_path, "scripts"), exist_ok=True)
-            with open(os.path.join(strand_path, "scripts", "harness.py"), "w") as f:
-                f.write("class MockFallback:\n    pass\n")
-            with open(os.path.join(strand_path, "src", "init.py"), "a") as f:
-                f.write("# touch\n")
-            subprocess.run(["git", "-C", strand_path, "add", "scripts/harness.py", "src/init.py"], check=True)
-            subprocess.run(["git", "-C", strand_path, "commit", "-q", "-m", "feat: add script with mock fallback"], check=True)
+            with open(os.path.join(strand_path, "src", "feature.py"), "w") as f:
+                f.write("def calculate(): return 123\n")
+            with open(os.path.join(strand_path, "src", "base.py"), "a") as f:
+                f.write("from feature import calculate\ncalculate()\n")
+            subprocess.run(["git", "-C", strand_path, "add", "src/"], check=True)
+            subprocess.run(["git", "-C", strand_path, "commit", "-q", "-m", "feat: add calculate"], check=True)
 
-            code1, out1, err1 = run_vine("gate", "--dir", strand_path, "--allow-no-tests", "--json")
-            assert code1 == 7, f"Expected 7 for MockFallback in scripts/, got {code1}: {out1} {err1}"
-            data1 = json.loads(out1)
-            assert data1["defeat_device_gate"] == "FAIL"
+            sub_code, sub_out, _ = run_vine("submit", "--dir", strand_path, "--author", "worker-alice", "--allow-no-tests", "--json")
+            assert sub_code == 0
+            assert json.loads(sub_out)["status"] == "ready_for_audit"
 
-            # Case 2: ablation_applied in src/
-            os.remove(os.path.join(strand_path, "scripts", "harness.py"))
-            with open(os.path.join(strand_path, "src", "ablation.py"), "w") as f:
-                f.write("def check():\n    if not ablation_applied:\n        return True\n")
-            with open(os.path.join(strand_path, "src", "init.py"), "a") as f:
-                f.write("from ablation import check\ncheck()\n")
-            subprocess.run(["git", "-C", strand_path, "add", "scripts/", "src/"], check=True)
-            subprocess.run(["git", "-C", strand_path, "commit", "-q", "-m", "feat: test ablation defeat device"], check=True)
+            # 1. Inspect diff
+            insp_code, _, _ = run_vine("audit", "inspect", "--dir", strand_path)
+            assert insp_code == 0
 
-            code2, out2, err2 = run_vine("gate", "--dir", strand_path, "--allow-no-tests", "--json")
-            assert code2 == 7, f"Expected 7 for ablation_applied, got {code2}: {out2} {err2}"
-            data2 = json.loads(out2)
-            assert data2["defeat_device_gate"] == "FAIL"
+            # 2. Negative Control: missing or < 20 chars evidence (e.g. "LGTM") -> Exit 6
+            c_lgtm, out_lgtm, err_lgtm = run_vine("audit", "approve", "--dir", strand_path, "--auditor", "auditor-bob", "--evidence", "LGTM", "--json")
+            assert c_lgtm == 6, f"Expected 6 for LGTM, got {c_lgtm}: {out_lgtm} {err_lgtm}"
+            assert "Audit evidence required" in (out_lgtm + err_lgtm)
+
+            # 3. Negative Control: >= 20 chars but does NOT cite any changed file basename -> Exit 6
+            c_uncited, out_uncited, err_uncited = run_vine("audit", "approve", "--dir", strand_path, "--auditor", "auditor-bob", "--evidence", "Five pillars verified and all invariants ratified.", "--json")
+            assert c_uncited == 6, f"Expected 6 for uncited evidence, got {c_uncited}: {out_uncited} {err_uncited}"
+            assert "Audit evidence violation" in (out_uncited + err_uncited)
+
+            # 4. Negative Control: --force CANNOT bypass evidence requirement -> Exit 6
+            c_force, out_force, err_force = run_vine("audit", "approve", "--dir", strand_path, "--auditor", "auditor-bob", "--evidence", "LGTM", "--force", "--json")
+            assert c_force == 6, f"Expected 6 for --force with LGTM, got {c_force}"
+            assert "Audit evidence required" in (out_force + err_force)
+
+            # 5. Positive Control: Substantive evidence citing changed file (feature.py) -> Exit 0 (AUDIT_RATIFIED)
+            c_ok, out_ok, err_ok = run_vine("audit", "approve", "--dir", strand_path, "--auditor", "auditor-bob", "--evidence", "Verified feature.py calculate implementation and caller wiring.", "--json")
+            assert c_ok == 0, f"Expected 0, got {c_ok}: {err_ok}\nOut: {out_ok}"
+            data_ok = json.loads(out_ok)
+            assert data_ok["status"] == "audit_ratified"
+            assert "feature.py" in data_ok.get("evidence", "")
 
         finally:
             if os.path.exists(strand_path):

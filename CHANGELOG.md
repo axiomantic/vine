@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Evidence-Bound Audit Approval (`--evidence <text>`) (`src/vine.nim`, `src/gate.nim`, `src/guide.nim`, `skills/vine/SKILL.md`)**:
+  - `vine audit approve` strictly enforces substantive verification evidence via `--evidence <text>` (or `--notes <text>` when `>= 20` characters).
+  - `--evidence` must be at least 20 characters and must cite at least one changed file basename from the strand diff (`git diff --name-only <base>...HEAD`, excluding `CHANGELOG.md`).
+  - Generic boilerplate (e.g. `"LGTM"`, `"Five pillars verified"`) fails with `ExitGateAuditViolation` (code 6).
+  - `--force` is strictly prohibited from bypassing the evidence requirement.
+  - Stamped `evidence` and `notes` into Redis strand state and manifest.
+  - Updated audit approval command recommendations across CLI hints and documentation to recommend `vine audit approve <task_id> --auditor <name> --ticket <hex> --evidence "Verified <file>:<symbol> and test <test_file>"`, clarifying that the Auditor ratifies Key 3 while the Orchestrator executes `vine weave`.
 - **Pre-Plan Contract Skeleton Mode (`--skeleton`) (`src/vine.nim`, `src/gate.nim`, `src/redis_client.nim`, `scripts/strand.lua`, `src/strand.nim`)**:
   - Added `--skeleton` flag to `vine gate` and `vine submit` for pre-plan contract skeleton strands (`strand/task-<slug>-skeleton` branching from `epic/<slug>` parent branches).
   - Skips Two-Point Diff application consumer requirement for interface stubs, allowing shared types/headers/stubs in `src/` to be submitted without application callers yet (while still rejecting 100% test strands).
@@ -21,9 +28,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Clears `inspected_tree_sha` upon any new `vine submit` or tree change, enforcing re-inspection.
 - **Strict Ticket Enforcement on `vine audit approve` (`src/gate.nim`, `scripts/strand.lua`, `src/redis_client.nim`)**:
   - Removed `--force` ticket bypass from `vine audit approve`: if `audit_ticket_hash` is recorded on the strand, an authentic `--ticket <hex>` is strictly required, preventing unratified approvals even with `--force`.
-- **Expanded Key 2 Defeat-Device Scanner (`src/gate.nim`)**:
-  - Expanded `scanForDefeatDevices` to inspect both `src/` and `scripts/` trees.
-  - Detects and rejects `MockFallback` and `lesMockFallback` definitions, and tautological benchmark toggles (`if not ablation_applied:` / `if ablation_applied:`) with `ExitGateDefeatDeviceViolation = 7`.
+
+### Changed
+- **Purge Brittle Static Regex Whack-a-Mole from Defeat Device Scanner (`src/gate.nim`, `src/guide.nim`)**:
+  - Removed brittle, overfitted string checks (`hasMockFallback` / `MockFallback` and `hasAblationToggle` / `if not ablation_applied:`) from `scanForDefeatDevices`.
+  - Removed scanner self-exemption hacks for `src/gate.nim` and `src/guide.nim`.
+  - Preserved structural prompt-interceptor detection (`in q`, `in query`, `q.contains`, etc.) and `UNIMPLEMENTED_CONTRACT` test checks.
 
 ## [0.2.18] - 2026-11-09
 

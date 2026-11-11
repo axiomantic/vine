@@ -264,9 +264,7 @@ proc scanForDefeatDevices*(strandDir: string, diffBase: string, branch: string =
        norm.contains("/test/") or norm.contains("/tests/") or
        norm.contains("/fixtures/") or norm.contains("/fixture/") or
        norm.endsWith(".md") or norm.endsWith(".json") or norm.endsWith(".toml") or
-       norm.endsWith(".yaml") or norm.endsWith(".yml") or
-       norm.endsWith("src/gate.nim") or norm == "src/gate.nim" or
-       norm.endsWith("src/guide.nim") or norm == "src/guide.nim":
+       norm.endsWith(".yaml") or norm.endsWith(".yml"):
       continue
 
     if rawLine.startsWith("+") and not rawLine.startsWith("+++"):
@@ -294,20 +292,7 @@ proc scanForDefeatDevices*(strandDir: string, diffBase: string, branch: string =
       let hasTheatricalMocks = lower.contains("epistemicquestions") or lower.contains("mockquestionnaire") or
                                lower.contains("isdeepprojectcreationquery")
 
-      let hasMockFallback = lower.contains("lesmockfallback") or lower.contains("mockfallback")
-
-      let hasAblationToggle = lower.contains("ablation_applied") and (
-        lower.contains("if not ablation_applied") or lower.contains("if ablation_applied") or
-        lower.contains("if ") or lower.contains("elif ") or lower.contains("not ")
-      )
-
-      if hasMockFallback:
-        isInterceptor = true
-        reason = "lesMockFallback / MockFallback definition or reference detected in production code"
-      elif hasAblationToggle:
-        isInterceptor = true
-        reason = "Tautological benchmark toggle ('ablation_applied') detected in production code"
-      elif hasTheatricalMocks:
+      if hasTheatricalMocks:
         isInterceptor = true
         reason = "Theatrical mock questionnaire or hardcoded project query interceptor detected"
       elif hasQueryVar and (hasBenchmarkKeywords or (lower.count(" or ") >= 1 and (lower.contains("\"") or lower.contains("'")))):
@@ -946,6 +931,7 @@ proc doStrandAudit*(
   reasonParam: string = "",
   findingsFileParam: string = "",
   notesParam: string = "",
+  evidenceParam: string = "",
   noNotify: bool = false,
   ticketParam: string = "",
   forceParam: bool = false,
@@ -1111,6 +1097,45 @@ proc doStrandAudit*(
       errObj["error"] = %("Audit inspection required: Strand has not been inspected at current merge_tree_sha (" & recordedTreeSha & "). Run 'vine audit inspect " & (if tid.len > 0: tid else: strandDir) & "' to review the diff before approving.")
       return (errObj, ExitGateAuditViolation)
 
+    # Evidence-Bound Approval Verification (Inverting the Lazy-LLM Incentive Gradient)
+    let effEvidence = if evidenceParam.strip().len > 0: evidenceParam.strip()
+                      elif notesParam.strip().len > 0: notesParam.strip()
+                      else: ""
+
+    if effEvidence.len < 20:
+      var errObj = newJObject()
+      errObj["status"] = %"audit_violation"
+      errObj["error"] = %"Audit evidence required: 'vine audit approve' requires substantive verification evidence (--evidence <text> >= 20 chars). Generic rubber-stamps (e.g. 'LGTM') are rejected. Cite the specific file(s), symbols, and test assertions verified under the Five Pillars."
+      return (errObj, ExitGateAuditViolation)
+
+    let baseBranchForDiff = manifest.getOrDefault("base_branch").getStr("main")
+    let (diffFilesOut, dfCode) = execCmdEx("git -C " & quoteShell(strandDir) & " diff --name-only " & quoteShell(baseBranchForDiff) & "...HEAD")
+    var changedBasenames: seq[string] = @[]
+    if dfCode == 0 and diffFilesOut.strip().len > 0:
+      for line in diffFilesOut.splitLines():
+        let trimmed = line.strip()
+        if trimmed.len == 0: continue
+        let normF = trimmed.toLowerAscii
+        if normF.endsWith("changelog.md") or normF.endsWith("changes.md"):
+          continue
+        let baseName = splitPath(trimmed).tail
+        if baseName.len > 0:
+          changedBasenames.add(baseName)
+
+    var hasCitedFile = false
+    let lowerEvidence = effEvidence.toLowerAscii
+    for baseName in changedBasenames:
+      if lowerEvidence.contains(baseName.toLowerAscii):
+        hasCitedFile = true
+        break
+
+    if changedBasenames.len > 0 and not hasCitedFile:
+      var errObj = newJObject()
+      errObj["status"] = %"audit_violation"
+      errObj["error"] = %("Audit evidence violation: --evidence must cite at least one actual changed file from the strand diff (" &
+        changedBasenames.join(", ") & "). Generic boilerplate without specific file citations is rejected. Cite the specific file(s), symbols, and test assertions verified.")
+      return (errObj, ExitGateAuditViolation)
+
     if gateToken.len == 0 or recordedTreeSha.len == 0 or
        (currentStatus notin ["READY_FOR_AUDIT", "READY_FOR_WEAVE", "GATE_PASSED", "SUBMITTED"] and
         currentLifecycle notin ["READY_FOR_AUDIT", "READY_FOR_WEAVE", "GATE_PASSED", "SUBMITTED"]):
@@ -1161,7 +1186,7 @@ proc doStrandAudit*(
     let auditToken = computeAuditToken(gateToken, effectiveTreeSha, auditor)
 
     if tid.len > 0:
-      let rResp = ratifyStrandRedis(tid, auditor, auditor, auditToken, notesParam, antiBlinkFloor = 0, ticketHash = ticketHash, force = forceParam)
+      let rResp = ratifyStrandRedis(tid, auditor, auditor, auditToken, effEvidence, antiBlinkFloor = 0, ticketHash = ticketHash, force = forceParam)
       if rResp != nil and rResp.kind == JObject and rResp.hasKey("error"):
         var errObj = newJObject()
         errObj["status"] = %"audit_violation"
@@ -1176,6 +1201,8 @@ proc doStrandAudit*(
     res["audit_token"] = %auditToken
     res["merge_tree_sha"] = %effectiveTreeSha
     res["gate_token"] = %gateToken
+    res["evidence"] = %effEvidence
+    res["notes"] = %effEvidence
     res["message"] = %"Key 3 Pre-Weave Adversarial Audit ratified. Strand is cleared for trunk weaving."
     let notifyRes = notifyStrandEvent(manifest, "AUDIT_RATIFIED", res, noNotify)
     if notifyRes != nil:
@@ -1208,3 +1235,27 @@ proc doStrandAudit*(
     errObj["status"] = %"error"
     errObj["error"] = %("Unknown audit action: " & action & ". Expected 'approve', 'reject', or 'status'.")
     return (errObj, 1)
+
+proc doAuditApprove*(
+  strandDirParam: string = "",
+  auditorParam: string = "",
+  evidenceParam: string = "",
+  notesParam: string = "",
+  noNotify: bool = false,
+  ticketParam: string = "",
+  forceParam: bool = false,
+  weaveParam: bool = false,
+  listenParam: bool = false
+): tuple[output: JsonNode, exitCode: int] =
+  return doStrandAudit(
+    action = "approve",
+    strandDirParam = strandDirParam,
+    auditorParam = auditorParam,
+    notesParam = notesParam,
+    evidenceParam = evidenceParam,
+    noNotify = noNotify,
+    ticketParam = ticketParam,
+    forceParam = forceParam,
+    weaveParam = weaveParam,
+    listenParam = listenParam
+  )
