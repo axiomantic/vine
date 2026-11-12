@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Release Version Bump (`vine.nimble`, `package.json`, `src/vine.nim`)**:
+  - Bumped version from 0.2.19 to 0.2.20.
+
+## [0.2.20] - 2026-11-11
+
 ### Added
 - **Strict Fail-Fast Author & Auditor Identity Resolution (`src/strand.nim`, `src/gate.nim`, `src/weave.nim`, `src/redis_client.nim`)**:
   - Purged silent OS `$USER`/`$USERNAME` fallback across all subcommands (`vine submit`, `vine audit approve`, `vine audit reject`, `vine weave`).

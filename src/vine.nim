@@ -4,7 +4,7 @@
 import std/[os, strutils, json, sequtils]
 import strand, gate, weave, guide, config, update, notify, crypto, redis_client
 
-const Version = "0.2.19"
+const Version = "0.2.20"
 
 proc printHelp() =
   echo "Vine v" & Version & " — Sub-Second Rift Workspaces & Zero-Mirage Git Weaving"
