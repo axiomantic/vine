@@ -952,6 +952,22 @@ proc doStrandAuditInspect*(
   res["diff"] = %diffOut
   return (res, 0)
 
+proc formatAuditEpochOrStr(node: JsonNode, key: string): string =
+  if node == nil or not node.hasKey(key): return ""
+  let n = node[key]
+  var raw = ""
+  if n.kind == JInt:
+    raw = $n.getInt()
+  elif n.kind == JString:
+    raw = n.getStr()
+  if raw.len > 0:
+    try:
+      let epoch = parseInt(raw)
+      return fromUnix(epoch).utc().format("yyyy-MM-dd HH:mm:ss 'UTC'")
+    except CatchableError:
+      return raw
+  return ""
+
 proc doStrandAudit*(
   action: string,
   strandDirParam: string = "",
@@ -1020,6 +1036,38 @@ proc doStrandAudit*(
       errObj["status"] = %"audit_violation"
       errObj["error"] = %("Self-audit violation: Worker '" & author & "' cannot audit their own strand. Key 3 requires an independent Adversarial Auditor created by the Orchestrator.")
       return (errObj, ExitGateAuditViolation)
+
+    let currentStatus = manifest.getOrDefault("status").getStr("")
+    let currentLifecycle = manifest.getOrDefault("lifecycle_state").getStr("")
+    let currentState = manifest.getOrDefault("state").getStr("")
+
+    if currentStatus in ["AUDIT_RATIFIED", "RATIFIED"] or
+       currentLifecycle in ["AUDIT_RATIFIED", "RATIFIED"] or
+       currentState in ["AUDIT_RATIFIED", "RATIFIED"]:
+      let prevAuditor = manifest.getOrDefault("auditor").getStr("unknown")
+      let ratTime = formatAuditEpochOrStr(manifest, "ratified_at")
+      let ratifiedAt = if ratTime.len > 0: ratTime else: "previously"
+      var res = newJObject()
+      res["status"] = %"already_ratified"
+      res["task_id"] = %tid
+      res["auditor"] = %prevAuditor
+      res["ratified_at"] = %ratifiedAt
+      res["message"] = %("Already ratified by " & prevAuditor & " at " & ratifiedAt & "; nothing to do.")
+      return (res, 0)
+
+    if currentStatus in ["WOVEN", "MERGED", "WEAVED", "CLOSED"] or
+       currentLifecycle in ["WOVEN", "MERGED", "WEAVED", "CLOSED"] or
+       currentState in ["WOVEN", "MERGED", "WEAVED", "CLOSED"]:
+      let wovenBy = manifest.getOrDefault("woven_by").getStr("orchestrator")
+      let wovTime = formatAuditEpochOrStr(manifest, "woven_at")
+      let wovenAt = if wovTime.len > 0: wovTime else: "previously"
+      var res = newJObject()
+      res["status"] = %"already_woven"
+      res["task_id"] = %tid
+      res["woven_by"] = %wovenBy
+      res["woven_at"] = %wovenAt
+      res["message"] = %("Already woven into trunk by " & wovenBy & " at " & wovenAt & "; nothing to do.")
+      return (res, 0)
 
     # Ticket Verification
     let ticketHash = if ticketParam.strip().len > 0: sha256(ticketParam.strip().toLowerAscii) else: ""
@@ -1109,6 +1157,38 @@ proc doStrandAudit*(
       errObj["error"] = %("Self-audit violation: Worker '" & author & "' cannot audit their own strand. Key 3 requires an independent Adversarial Auditor created by the Orchestrator.")
       return (errObj, ExitGateAuditViolation)
 
+    let currentStatus = manifest.getOrDefault("status").getStr("")
+    let currentLifecycle = manifest.getOrDefault("lifecycle_state").getStr("")
+    let currentState = manifest.getOrDefault("state").getStr("")
+
+    if currentStatus in ["AUDIT_RATIFIED", "RATIFIED"] or
+       currentLifecycle in ["AUDIT_RATIFIED", "RATIFIED"] or
+       currentState in ["AUDIT_RATIFIED", "RATIFIED"]:
+      let prevAuditor = manifest.getOrDefault("auditor").getStr("unknown")
+      let ratTime = formatAuditEpochOrStr(manifest, "ratified_at")
+      let ratifiedAt = if ratTime.len > 0: ratTime else: "previously"
+      var res = newJObject()
+      res["status"] = %"already_ratified"
+      res["task_id"] = %tid
+      res["auditor"] = %prevAuditor
+      res["ratified_at"] = %ratifiedAt
+      res["message"] = %("Already ratified by " & prevAuditor & " at " & ratifiedAt & "; nothing to do.")
+      return (res, 0)
+
+    if currentStatus in ["WOVEN", "MERGED", "WEAVED", "CLOSED"] or
+       currentLifecycle in ["WOVEN", "MERGED", "WEAVED", "CLOSED"] or
+       currentState in ["WOVEN", "MERGED", "WEAVED", "CLOSED"]:
+      let wovenBy = manifest.getOrDefault("woven_by").getStr("orchestrator")
+      let wovTime = formatAuditEpochOrStr(manifest, "woven_at")
+      let wovenAt = if wovTime.len > 0: wovTime else: "previously"
+      var res = newJObject()
+      res["status"] = %"already_woven"
+      res["task_id"] = %tid
+      res["woven_by"] = %wovenBy
+      res["woven_at"] = %wovenAt
+      res["message"] = %("Already woven into trunk by " & wovenBy & " at " & wovenAt & "; nothing to do.")
+      return (res, 0)
+
     # Ticket Verification (Mandatory on approve; --force CANNOT bypass ticket verification)
     let ticketHash = if ticketParam.strip().len > 0: sha256(ticketParam.strip().toLowerAscii) else: ""
     let perAuditorTicketHash = manifest.getOrDefault("audit_ticket_hash:" & auditor.toLowerAscii).getStr("")
@@ -1128,8 +1208,6 @@ proc doStrandAudit*(
       errObj["error"] = %"Audit ticket violation: Missing or invalid --ticket <hex> from rhizo listen delivery."
       return (errObj, ExitGateAuditViolation)
 
-    let currentStatus = manifest.getOrDefault("status").getStr("")
-    let currentLifecycle = manifest.getOrDefault("lifecycle_state").getStr("")
     let gateToken = manifest.getOrDefault("gate_token").getStr("")
     let recordedTreeSha = manifest.getOrDefault("merge_tree_sha").getStr("")
 

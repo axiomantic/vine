@@ -782,24 +782,30 @@ proc main() =
           echo "  Stamped in Redis  : Yes (ready for 'vine audit approve')"
           echo "================================================================================"
         elif subaction in ["approve", "ratify"]:
-          echo "[RATIFIED] Key 3 Pre-Weave Adversarial Audit Passed!"
-          echo "  Task ID    : " & res{"task_id"}.getStr("")
-          echo "  Author     : " & res{"author"}.getStr("")
-          echo "  Auditor    : " & res{"auditor"}.getStr("")
-          echo "  Audit Token: " & res{"audit_token"}.getStr("")
-          if res.hasKey("weave"):
-            echo "  Trunk Weave: PASS (woven into trunk)"
-          if res.hasKey("notification") and res["notification"].hasKey("primary_mode"):
-            let nm = res["notification"]
-            echo "  Notified   : " & nm{"primary_mode"}.getStr("") & " (" & nm{"primary_target"}.getStr("") & ")"
+          if res.getOrDefault("status").getStr("") in ["already_ratified", "already_woven"]:
+            echo res.getOrDefault("message").getStr("")
+          else:
+            echo "[RATIFIED] Key 3 Pre-Weave Adversarial Audit Passed!"
+            echo "  Task ID    : " & res{"task_id"}.getStr("")
+            echo "  Author     : " & res{"author"}.getStr("")
+            echo "  Auditor    : " & res{"auditor"}.getStr("")
+            echo "  Audit Token: " & res{"audit_token"}.getStr("")
+            if res.hasKey("weave"):
+              echo "  Trunk Weave: PASS (woven into trunk)"
+            if res.hasKey("notification") and res["notification"].hasKey("primary_mode"):
+              let nm = res["notification"]
+              echo "  Notified   : " & nm{"primary_mode"}.getStr("") & " (" & nm{"primary_target"}.getStr("") & ")"
         elif subaction == "reject":
-          echo "[REJECTED] Strand rejected during Key 3 Adversarial Audit!"
-          echo "  Task ID    : " & res{"task_id"}.getStr("")
-          echo "  Auditor    : " & res{"auditor"}.getStr("")
-          echo "  Reason     : " & res{"rejection_reason"}.getStr("")
-          if res.hasKey("notification") and res["notification"].hasKey("primary_mode"):
-            let nm = res["notification"]
-            echo "  Notified   : " & nm{"primary_mode"}.getStr("") & " (" & nm{"primary_target"}.getStr("") & ")"
+          if res.getOrDefault("status").getStr("") in ["already_ratified", "already_woven"]:
+            echo res.getOrDefault("message").getStr("")
+          else:
+            echo "[REJECTED] Strand rejected during Key 3 Adversarial Audit!"
+            echo "  Task ID    : " & res{"task_id"}.getStr("")
+            echo "  Auditor    : " & res{"auditor"}.getStr("")
+            echo "  Reason     : " & res{"rejection_reason"}.getStr("")
+            if res.hasKey("notification") and res["notification"].hasKey("primary_mode"):
+              let nm = res["notification"]
+              echo "  Notified   : " & nm{"primary_mode"}.getStr("") & " (" & nm{"primary_target"}.getStr("") & ")"
         else: # status
           echo "Strand Audit Status:"
           echo "  Task ID     : " & res{"task_id"}.getStr("")

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Clear UX Message on Already-Ratified and Already-Woven Strands (`src/gate.nim`, `src/vine.nim`)**:
+  - `vine audit approve` and `vine audit reject` now perform an early state check before ticket and gate token validation.
+  - If a strand is already in `["AUDIT_RATIFIED", "RATIFIED"]`, exits with code 0 returning `status: "already_ratified"` and `Already ratified by <auditor> at <ratified_at>; nothing to do.` instead of failing with `Strand has not passed Keys 1 & 2`.
+  - If a strand is already in `["WOVEN", "MERGED", "WEAVED", "CLOSED"]`, exits with code 0 returning `status: "already_woven"` and `Already woven into trunk by <woven_by> at <woven_at>; nothing to do.` instead of failing.
+  - Added timestamp formatting helper `formatAuditEpochOrStr` converting epoch timestamps to human-readable UTC string format (`yyyy-MM-dd HH:mm:ss 'UTC'`).
+
 ### Changed
 - **Release Version Bump (`vine.nimble`, `package.json`, `src/vine.nim`)**:
   - Bumped version from 0.2.20 to 0.2.21.

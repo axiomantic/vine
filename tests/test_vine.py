@@ -2004,6 +2004,91 @@ def test_vine_gate_state_preservation_and_weave_unaudited():
                 shutil.rmtree(os.path.dirname(os.path.dirname(strand_path)), ignore_errors=True)
 
 
+def test_vine_already_ratified_or_woven_audit_message():
+    """Verify 'vine audit approve' and 'reject' on an already-ratified or already-woven strand exits 0 with clear message."""
+    with tempfile.TemporaryDirectory(prefix="vine_already_ratified_") as repo_dir:
+        subprocess.run(["git", "init", "-b", "main", "-q", repo_dir], check=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.email", "agent@vine.mesh"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.name", "Vine Agent"], check=True)
+
+        os.makedirs(os.path.join(repo_dir, "src"), exist_ok=True)
+        with open(os.path.join(repo_dir, "src", "main.nim"), "w") as f:
+            f.write("echo \"initial\"\n")
+        subprocess.run(["git", "-C", repo_dir, "add", "src/main.nim"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "commit", "-q", "-m", "Initial commit"], check=True)
+
+        task_id = f"task-already-rat-{int(time.time() * 1000)}"
+        code, out, err = run_vine("new", task_id, "--repo", repo_dir, "--branch", f"strand/{task_id}", "--worktree")
+        assert code == 0
+        strand_path = json.loads(out)["strand_path"]
+
+        try:
+            with open(os.path.join(strand_path, "src", "feature.nim"), "w") as f:
+                f.write("proc feature*(): string = \"ok\"\n")
+            with open(os.path.join(strand_path, "src", "main.nim"), "w") as f:
+                f.write("import feature\necho feature()\n")
+            subprocess.run(["git", "-C", strand_path, "add", "src/feature.nim", "src/main.nim"], check=True)
+            subprocess.run(["git", "-C", strand_path, "commit", "-q", "-m", "feat: add feature and consumer"], check=True)
+
+            # Submit
+            sub_code, sub_out, sub_err = run_vine("submit", "--dir", strand_path, "--author", "rhizo-sequoia", "--allow-no-tests", "--json")
+            assert sub_code == 0, f"Submit failed: {sub_err}\nOut: {sub_out}"
+
+            # Inspect
+            ins_code, ins_out, ins_err = run_vine("audit", "inspect", "--dir", strand_path, "--auditor", "rhizo-audit-alpha", "--json")
+            assert ins_code == 0, f"Inspect failed: {ins_err}\nOut: {ins_out}"
+
+            # Approve by Auditor 1
+            app_code, app_out, app_err = run_vine("audit", "approve", "--dir", strand_path, "--auditor", "rhizo-audit-alpha", "--evidence", "Verified feature.nim implementation thoroughly", "--json")
+            assert app_code == 0, f"Approval failed: {app_err}\nOut: {app_out}"
+            app_json = json.loads(app_out)
+            assert app_json.get("status").lower() in ["audit_ratified", "ratified"]
+
+            # Second approve attempt on already ratified strand (e.g. from Auditor 2 or re-run)
+            app2_code, app2_out, app2_err = run_vine("audit", "approve", "--dir", strand_path, "--auditor", "rhizo-audit-beta", "--evidence", "Verified feature.nim implementation thoroughly", "--json")
+            assert app2_code == 0, f"Second approve returned non-zero code {app2_code}: {app2_err}\nOut: {app2_out}"
+            app2_json = json.loads(app2_out)
+            assert app2_json.get("status") == "already_ratified"
+            assert "Already ratified by rhizo-audit-alpha" in app2_json.get("message")
+            assert "nothing to do" in app2_json.get("message")
+
+            # Check text output (non-json)
+            app2_text_code, app2_text_out, app2_text_err = run_vine("audit", "approve", "--dir", strand_path, "--auditor", "rhizo-audit-beta", "--evidence", "Verified feature.nim implementation thoroughly")
+            assert app2_text_code == 0, f"Second approve text returned non-zero code {app2_text_code}: {app2_text_err}\nOut: {app2_text_out}"
+            assert "Already ratified by rhizo-audit-alpha" in app2_text_out
+            assert "Keys 1 & 2" not in app2_text_out and "Keys 1 & 2" not in app2_text_err
+
+            # Reject attempt on already ratified strand should also exit 0 and report already_ratified
+            rej_code, rej_out, rej_err = run_vine("audit", "reject", "--dir", strand_path, "--auditor", "rhizo-audit-beta", "--reason", "Not needed anymore", "--json")
+            assert rej_code == 0, f"Reject returned non-zero code {rej_code}: {rej_err}\nOut: {rej_out}"
+            rej_json = json.loads(rej_out)
+            assert rej_json.get("status") == "already_ratified"
+            assert "Already ratified by rhizo-audit-alpha" in rej_json.get("message")
+
+            # Weave into trunk
+            w_code, w_out, w_err = run_vine("weave", task_id, cwd=repo_dir)
+            assert w_code == 0, f"Weave failed: {w_err}\nOut: {w_out}"
+
+            # Third approve attempt on already woven strand
+            app3_code, app3_out, app3_err = run_vine("audit", "approve", task_id, "--auditor", "rhizo-audit-beta", "--evidence", "Verified feature.nim implementation thoroughly", "--json", cwd=repo_dir)
+            assert app3_code == 0, f"Third approve returned non-zero code {app3_code}: {app3_err}\nOut: {app3_out}"
+            app3_json = json.loads(app3_out)
+            assert app3_json.get("status") == "already_woven"
+            assert "Already woven into trunk" in app3_json.get("message")
+            assert "nothing to do" in app3_json.get("message")
+
+            # Check text output (non-json) for woven
+            app3_text_code, app3_text_out, app3_text_err = run_vine("audit", "approve", task_id, "--auditor", "rhizo-audit-beta", "--evidence", "Verified feature.nim implementation thoroughly", cwd=repo_dir)
+            assert app3_text_code == 0, f"Third approve text returned non-zero code {app3_text_code}: {app3_text_err}\nOut: {app3_text_out}"
+            assert "Already woven into trunk" in app3_text_out
+
+        finally:
+            if os.path.exists(strand_path):
+                subprocess.run(["git", "-C", repo_dir, "worktree", "remove", "--force", strand_path], capture_output=True)
+                subprocess.run(["git", "-C", repo_dir, "worktree", "prune"], capture_output=True)
+                shutil.rmtree(os.path.dirname(os.path.dirname(strand_path)), ignore_errors=True)
+
+
 if __name__ == "__main__":
     import inspect
     import traceback
