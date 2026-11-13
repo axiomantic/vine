@@ -1463,27 +1463,26 @@ def test_vine_contract_skeleton_mode():
                 f.write("def perform_action():\n    raise NotImplementedError('UNIMPLEMENTED_CONTRACT')\n")
             with open(os.path.join(strand_path, "tests", "test_contract.py"), "w") as f:
                 f.write("import pytest\nfrom src.contract import perform_action\n\ndef test_contract_call():\n    perform_action()\n")
-            # Create a simple test runner script that exits non-zero due to UNIMPLEMENTED_CONTRACT
-            test_script = os.path.join(strand_path, "run_tests.sh")
+            # Create a cross-platform test runner script that exits non-zero due to UNIMPLEMENTED_CONTRACT
+            test_script = os.path.join(strand_path, "run_tests.py")
             with open(test_script, "w") as f:
-                f.write("#!/bin/sh\npython3 -c 'raise NotImplementedError(\"UNIMPLEMENTED_CONTRACT\")'\n")
-            os.chmod(test_script, 0o755)
+                f.write('raise NotImplementedError("UNIMPLEMENTED_CONTRACT")\n')
 
-            subprocess.run(["git", "-C", strand_path, "add", "src/contract.py", "tests/test_contract.py", "run_tests.sh"], check=True)
+            subprocess.run(["git", "-C", strand_path, "add", "src/contract.py", "tests/test_contract.py", "run_tests.py"], check=True)
             subprocess.run(["git", "-C", strand_path, "commit", "-q", "-m", "feat: pre-plan contract skeleton"], check=True)
 
             # 2. Without --skeleton: vine gate fails with non-zero exit code (Exit 3: Two-Point Diff violation, or Exit 2: test failure)
-            g_fail_code, g_fail_out, g_fail_err = run_vine("gate", "--dir", strand_path, "--json", "--", "./run_tests.sh")
+            g_fail_code, g_fail_out, g_fail_err = run_vine("gate", "--dir", strand_path, "--json", "--", sys.executable, "run_tests.py")
             assert g_fail_code in [2, 3], f"Expected gate failure without --skeleton, got {g_fail_code}: {g_fail_out} {g_fail_err}"
 
             # 3. With --skeleton: vine gate passes with exit code 0
-            g_pass_code, g_pass_out, g_pass_err = run_vine("gate", "--dir", strand_path, "--skeleton", "--json", "--", "./run_tests.sh")
+            g_pass_code, g_pass_out, g_pass_err = run_vine("gate", "--dir", strand_path, "--skeleton", "--json", "--", sys.executable, "run_tests.py")
             assert g_pass_code == 0, f"Expected gate success with --skeleton, got {g_pass_code}: {g_pass_err}\nOut: {g_pass_out}"
             g_data = json.loads(g_pass_out)
             assert g_data.get("is_skeleton") is True
 
             # 4. vine submit --skeleton succeeds and marks is_skeleton in Redis
-            s_code, s_out, s_err = run_vine("submit", "--dir", strand_path, "--author", "worker-skel", "--skeleton", "--json", "--", "./run_tests.sh")
+            s_code, s_out, s_err = run_vine("submit", "--dir", strand_path, "--author", "worker-skel", "--skeleton", "--json", "--", sys.executable, "run_tests.py")
             assert s_code == 0, f"Submit --skeleton failed: {s_err}\nOut: {s_out}"
             s_data = json.loads(s_out)
             assert s_data.get("is_skeleton") is True

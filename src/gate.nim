@@ -983,6 +983,24 @@ proc doStrandAudit*(
   listenParam: bool = false,
   allowRoleId: bool = false
 ): tuple[output: JsonNode, exitCode: int] =
+  let normAction = action.toLowerAscii
+
+  # Fail-Fast Auditor Identity Resolution & Role-As-ID Validation
+  var auditor = ""
+  if normAction in ["approve", "ratify", "reject"]:
+    auditor = resolveStrandAuditor(auditorParam)
+    if auditor.len == 0:
+      var errObj = newJObject()
+      errObj["status"] = %"error"
+      errObj["error"] = %("Error: Missing required --auditor <auditor-agent-id>. Usage: vine audit " & normAction & " <task_id> --auditor <auditor-id>" & (if normAction == "reject": " --ticket <hex> --reason \"...\"" else: " --ticket <hex> --evidence \"...\""))
+      return (errObj, 1)
+    let (vOk, vErr) = validateAgentId(auditor, allowRoleId)
+    if not vOk:
+      var errObj = newJObject()
+      errObj["status"] = %"error"
+      errObj["error"] = %vErr
+      return (errObj, 1)
+
   var strandDir = if strandDirParam.len > 0: strandDirParam.normalizedPath else: getCurrentDir()
   var manifest = findStrandManifest(if strandDirParam.len > 0: strandDirParam else: strandDir)
   if manifest != nil and manifest.hasKey("strand_path") and dirExists(manifest["strand_path"].getStr):
@@ -1000,7 +1018,6 @@ proc doStrandAudit*(
     if updated != nil and updated.kind == JObject:
       manifest = updated
 
-  let normAction = action.toLowerAscii
   case normAction
   of "inspect":
     return doStrandAuditInspect(strandDir, tid)
@@ -1015,19 +1032,6 @@ proc doStrandAudit*(
     return (res, 0)
 
   of "reject":
-    var auditor = resolveStrandAuditor(auditorParam)
-    if auditor.len == 0:
-      var errObj = newJObject()
-      errObj["status"] = %"error"
-      errObj["error"] = %"Error: Missing required --auditor <auditor-agent-id>. Usage: vine audit reject <task_id> --auditor <auditor-id> --ticket <hex> --reason \"...\""
-      return (errObj, 1)
-    let (vOk, vErr) = validateAgentId(auditor, allowRoleId)
-    if not vOk:
-      var errObj = newJObject()
-      errObj["status"] = %"error"
-      errObj["error"] = %vErr
-      return (errObj, 1)
-
     let author = if manifest.hasKey("author"): manifest["author"].getStr()
                  elif manifest.hasKey("worker_name"): manifest["worker_name"].getStr()
                  else: ""
@@ -1134,19 +1138,6 @@ proc doStrandAudit*(
       errObj["status"] = %"error"
       errObj["error"] = %"Error: --weave is no longer supported on vine audit approve (Auditor Merge-Clerk Decoupling). Auditors only ratify Key 3; the Lead Orchestrator executes vine weave."
       return (errObj, 2)
-
-    var auditor = resolveStrandAuditor(auditorParam)
-    if auditor.len == 0:
-      var errObj = newJObject()
-      errObj["status"] = %"error"
-      errObj["error"] = %"Error: Missing required --auditor <auditor-agent-id>. Usage: vine audit approve <task_id> --auditor <auditor-id> --ticket <hex> --evidence \"...\""
-      return (errObj, 1)
-    let (vOk, vErr) = validateAgentId(auditor, allowRoleId)
-    if not vOk:
-      var errObj = newJObject()
-      errObj["status"] = %"error"
-      errObj["error"] = %vErr
-      return (errObj, 1)
 
     let author = if manifest.hasKey("author"): manifest["author"].getStr()
                  elif manifest.hasKey("worker_name"): manifest["worker_name"].getStr()

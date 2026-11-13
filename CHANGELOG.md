@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Early Fail-Fast Auditor Validation in `vine audit` (`src/gate.nim`)**:
+  - `vine audit approve` and `vine audit reject` now resolve `--auditor` and validate against generic role titles (`ERR_ROLE_AS_ID`) before attempting strand manifest lookups.
+  - Prevents spurious `No strand found for: <task>` errors when required auditor credentials are missing or invalid.
+- **Cross-Platform Contract Skeleton Test Runner Compatibility (`tests/test_vine.py`)**:
+  - Replaced `./run_tests.sh` with cross-platform Python runner (`sys.executable` and `run_tests.py`) in `test_vine_contract_skeleton_mode` to ensure compatibility on Windows environments.
 - **Clear UX Message on Already-Ratified and Already-Woven Strands (`src/gate.nim`, `src/vine.nim`)**:
   - `vine audit approve` and `vine audit reject` now perform an early state check before ticket and gate token validation.
   - If a strand is already in `["AUDIT_RATIFIED", "RATIFIED"]`, exits with code 0 returning `status: "already_ratified"` and `Already ratified by <auditor> at <ratified_at>; nothing to do.` instead of failing with `Strand has not passed Keys 1 & 2`.
