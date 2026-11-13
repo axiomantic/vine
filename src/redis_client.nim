@@ -299,9 +299,12 @@ proc evalStrandLua*(action: string, args: openArray[string]): JsonNode =
     if not gFallbackStrands.hasKey(strandId):
       var err = newJObject(); err["error"] = %("Strand '" & strandId & "' does not exist"); return err
     var s = gFallbackStrands[strandId]
+    let perAuditorHash = s.getOrDefault("audit_ticket_hash:" & auditorName.toLowerAscii).getStr("")
     let recordedTicketHash = s.getOrDefault("audit_ticket_hash").getStr("")
-    if recordedTicketHash.len > 0:
-      if ticketHash.len == 0 or ticketHash.toLowerAscii != recordedTicketHash.toLowerAscii:
+    if perAuditorHash.len > 0 or recordedTicketHash.len > 0:
+      let matchPer = perAuditorHash.len > 0 and ticketHash.len > 0 and ticketHash.toLowerAscii == perAuditorHash.toLowerAscii
+      let matchRec = recordedTicketHash.len > 0 and ticketHash.len > 0 and ticketHash.toLowerAscii == recordedTicketHash.toLowerAscii
+      if ticketHash.len == 0 or not (matchPer or matchRec):
         var err = newJObject(); err["error"] = %"Audit ticket violation: Missing or invalid --ticket <hex> from rhizo listen delivery."; return err
     elif ticketHash.len > 0:
       var err = newJObject(); err["error"] = %"Audit ticket violation: Missing or invalid --ticket <hex> from rhizo listen delivery."; return err
@@ -348,10 +351,13 @@ proc evalStrandLua*(action: string, args: openArray[string]): JsonNode =
     if not gFallbackStrands.hasKey(strandId):
       var err = newJObject(); err["error"] = %("Strand '" & strandId & "' does not exist"); return err
     var s = gFallbackStrands[strandId]
+    let perAuditorHash = s.getOrDefault("audit_ticket_hash:" & auditorName.toLowerAscii).getStr("")
     let recordedTicketHash = s.getOrDefault("audit_ticket_hash").getStr("")
     if not force:
-      if recordedTicketHash.len > 0:
-        if ticketHash.len == 0 or ticketHash.toLowerAscii != recordedTicketHash.toLowerAscii:
+      if perAuditorHash.len > 0 or recordedTicketHash.len > 0:
+        let matchPer = perAuditorHash.len > 0 and ticketHash.len > 0 and ticketHash.toLowerAscii == perAuditorHash.toLowerAscii
+        let matchRec = recordedTicketHash.len > 0 and ticketHash.len > 0 and ticketHash.toLowerAscii == recordedTicketHash.toLowerAscii
+        if ticketHash.len == 0 or not (matchPer or matchRec):
           var err = newJObject(); err["error"] = %"Audit ticket violation: Missing or invalid --ticket <hex> from rhizo listen delivery."; return err
       elif ticketHash.len > 0:
         var err = newJObject(); err["error"] = %"Audit ticket violation: Missing or invalid --ticket <hex> from rhizo listen delivery."; return err
@@ -377,12 +383,13 @@ proc evalStrandLua*(action: string, args: openArray[string]): JsonNode =
     let strandId = if args.len > 0: args[0].toLowerAscii else: ""
     let mergeCommit = if args.len > 1: args[1] else: ""
     let byAgent = if args.len > 2: args[2] else: ""
+    let allowUnaudited = if args.len > 3: (args[3] == "1" or args[3].toLowerAscii == "true") else: false
 
     if not gFallbackStrands.hasKey(strandId):
       var err = newJObject(); err["error"] = %("Strand '" & strandId & "' does not exist"); return err
     var s = gFallbackStrands[strandId]
     let st = s.getOrDefault("state").getStr("")
-    if st != "RATIFIED":
+    if st != "RATIFIED" and not (allowUnaudited and (st == "GATE_PASSED" or st == "SUBMITTED")):
       var err = newJObject(); err["error"] = %("Cannot weave unratified strand '" & strandId & "'"); return err
     s["state"] = %"WOVEN"
     s["status"] = %"WOVEN"
@@ -505,10 +512,13 @@ proc evalStrandLua*(action: string, args: openArray[string]): JsonNode =
   of "set_audit_ticket":
     let strandId = if args.len > 0: args[0].toLowerAscii else: ""
     let ticketHash = if args.len > 1: args[1] else: ""
+    let auditorName = if args.len > 2: args[2] else: ""
     if not gFallbackStrands.hasKey(strandId):
       var err = newJObject(); err["error"] = %("Strand '" & strandId & "' does not exist"); return err
     var s = gFallbackStrands[strandId]
     s["audit_ticket_hash"] = %ticketHash
+    if auditorName.len > 0:
+      s["audit_ticket_hash:" & auditorName.toLowerAscii] = %ticketHash
     gFallbackStrands[strandId] = s
     var res = newJObject()
     res["status"] = %"OK"
@@ -606,15 +616,16 @@ proc rejectStrandRedis*(
 ): JsonNode =
   return evalStrandLua("reject", [strandId, auditorPubkey, auditorName, reason, notes, ticketHash, if force: "1" else: "0"])
 
-proc setAuditTicketRedis*(strandId, ticketHash: string): JsonNode =
-  return evalStrandLua("set_audit_ticket", [strandId, ticketHash])
+proc setAuditTicketRedis*(strandId, ticketHash: string, auditorName: string = ""): JsonNode =
+  return evalStrandLua("set_audit_ticket", [strandId, ticketHash, auditorName])
 
 proc weaveStrandRedis*(
   strandId: string,
   mergeCommit: string,
-  byAgent: string = ""
+  byAgent: string = "",
+  allowUnaudited: bool = false
 ): JsonNode =
-  return evalStrandLua("weave", [strandId, mergeCommit, byAgent])
+  return evalStrandLua("weave", [strandId, mergeCommit, byAgent, if allowUnaudited: "1" else: "0"])
 
 proc updateGateRedis*(
   strandId: string,

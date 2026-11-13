@@ -618,6 +618,9 @@ proc doStrandStatus*(strandDirOrId: string = ""): tuple[status: JsonNode, exitCo
     if found != nil and found.hasKey("strand_path") and dirExists(found["strand_path"].getStr):
       strandDir = found["strand_path"].getStr.normalizedPath
       manifest = found
+    elif found != nil:
+      manifest = found
+      strandDir = if found.hasKey("strand_path"): found["strand_path"].getStr else: ""
     elif dirExists(strandDirOrId):
       strandDir = strandDirOrId.normalizedPath
     else:
@@ -667,8 +670,16 @@ proc doStrandStatus*(strandDirOrId: string = ""): tuple[status: JsonNode, exitCo
       if line.len >= 3:
         let filePath = line[3..^1].strip()
         let topDir = if filePath.contains('/'): filePath.split('/')[0] else: filePath
+        let fn = extractFilename(filePath)
         if filePath in [".envrc", ".venv", ".git"] or topDir in ["deps", "nimbledeps", "vendor", "node_modules", ".zig-cache", ".venv"]:
           continue
+        if fn == ".DS_Store" or filePath.endsWith(".DS_Store"):
+          continue
+        if line.startsWith("?? "):
+          if fn.endsWith(".kicad_prl") or fn.endsWith("-bak") or fn.endsWith(".lck") or
+             fn.endsWith(".lock") or fn.endsWith(".tmp") or fn.endsWith(".swp") or
+             fn.endsWith("~"):
+            continue
         dirtyFiles.add(%line.strip())
 
   var lifecycleState = "IN_PROGRESS"

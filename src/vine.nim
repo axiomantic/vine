@@ -4,7 +4,7 @@
 import std/[os, strutils, json, sequtils]
 import strand, gate, weave, guide, config, update, notify, crypto, redis_client
 
-const Version = "0.2.20"
+const Version = "0.2.21"
 
 proc printHelp() =
   echo "Vine v" & Version & " — Sub-Second Rift Workspaces & Zero-Mirage Git Weaving"
@@ -16,9 +16,9 @@ proc printHelp() =
   echo "  vine collisions [--repo <path>] [--json]"
   echo "  vine gate [branch] [--base <ref>] [--dir <path>] [--submit] [--author <name>] [--timeout <sec>] [--skip-tests] [--allow-no-tests] [--allow-test-only] [--allow-no-changelog] [--allow-defeat-devices] [--ensure-unreleased] [--test-command <cmd>] [--json] [-- <command...>]"
   echo "  vine submit [task_id|path] [--dir <path>] [--author <name>] [--commit <msg>] [--listen] [--timeout <sec>] [--allow-no-tests] [--allow-test-only] [--allow-no-changelog] [--allow-defeat-devices] [--test-command <cmd>] [--no-notify] [--json]"
-  echo "  vine audit <approve|reject|status> [task_id|path] [--auditor <name>] [--ticket <hex>] [--force] [--listen] [--weave] [--reason <text>] [--notes <text>] [--findings <file>] [--dir <path>] [--no-notify] [--json]"
+  echo "  vine audit <approve|reject|status|set-ticket> [task_id|path] [--auditor <name>] [--ticket <hex>] [--force] [--listen] [--weave] [--reason <text>] [--notes <text>] [--findings <file>] [--dir <path>] [--no-notify] [--json]"
   echo "  vine sync [--dir <path>] [--base <ref>] [--rebase]"
-  echo "  vine weave [branch] [--base <ref>] [--dir <path>] [--force] [--allow-no-tests] [--allow-no-changelog] [--allow-unaudited] [--no-notify]"
+  echo "  vine weave [branch] [--base <ref>] [--dir <path>] [--force] [--allow-no-tests] [--allow-no-changelog] [--allow-unaudited] [--test-command <cmd>] [--no-notify]"
   echo "  vine changelog [entry] [--dir <path>] [--section <sec>] [--ensure-unreleased] [--check]"
   echo "  vine prune [--repo <path>] [--max-age <hours>] [--apply]"
   echo "  vine update [--check] [--apply] [--skip <pkg@ver>] [--disable] [--enable] [--json]"
@@ -652,14 +652,25 @@ proc main() =
     let subaction = args[1].toLowerAscii
     if subaction == "set-ticket":
       if args.len < 4:
-        stderr.writeLine("Usage: vine audit set-ticket <task_id|path> <ticket_hex>")
+        stderr.writeLine("Usage: vine audit set-ticket <task_id|path> <ticket_hex> [--auditor <name>]")
         quit(1)
       let target = args[2]
       let rawTicket = args[3].strip()
+      var auditor = ""
+      var i = 4
+      while i < args.len:
+        let a = args[i]
+        if (a in ["--auditor", "--agent", "--agent-id", "--id"]) and i + 1 < args.len:
+          auditor = args[i+1]; inc i
+        elif a.startsWith("--auditor="): auditor = a[10..^1]
+        elif a.startsWith("--agent="): auditor = a[8..^1]
+        elif a.startsWith("--agent-id="): auditor = a[11..^1]
+        elif a.startsWith("--id="): auditor = a[5..^1]
+        inc i
       var strand = findStrandManifest(target)
       let tid = if strand != nil: strand.getOrDefault("id").getStr(strand.getOrDefault("task_id").getStr(target)) else: target
       let ticketHash = if rawTicket.len == 64: rawTicket.toLowerAscii else: sha256(rawTicket.toLowerAscii)
-      let sRes = setAuditTicketRedis(tid, ticketHash)
+      let sRes = setAuditTicketRedis(tid, ticketHash, auditor)
       echo pretty(sRes)
       quit(0)
 
@@ -862,6 +873,7 @@ proc main() =
     var allowNoTests = false
     var allowNoChangelog = false
     var allowUnaudited = false
+    var testCmd = ""
     var noNotify = false
     var jsonOut = false
     var i = 1
@@ -882,17 +894,20 @@ proc main() =
       elif a == "--allow-no-tests": allowNoTests = true
       elif a == "--allow-no-changelog": allowNoChangelog = true
       elif a in ["--allow-unaudited", "-u"]: allowUnaudited = true
+      elif a == "--test-command" and i + 1 < args.len:
+        testCmd = args[i+1]; inc i
+      elif a.startsWith("--test-command="): testCmd = a[15..^1]
       elif a == "--no-notify": noNotify = true
       elif a == "--json": jsonOut = true
       elif not a.startsWith("-") and target.len == 0 and branch.len == 0:
         target = a
       elif a.startsWith("-"):
         stderr.writeLine("Error: Unknown option " & a & " for vine weave")
-        stderr.writeLine("Valid options: --task, --task-id, --strand, --base (-b), --dir (-d), --force (-f), --allow-unaudited (-u), --allow-no-tests, --allow-no-changelog, --no-notify, --json")
+        stderr.writeLine("Valid options: --task, --task-id, --strand, --base (-b), --dir (-d), --force (-f), --allow-unaudited (-u), --allow-no-tests, --allow-no-changelog, --test-command, --no-notify, --json")
         quit(2)
       inc i
     let effectiveTarget = if target.len > 0: target else: (if branch.len > 0: branch else: strandDir)
-    let (res, code) = doBraidWeave(effectiveTarget, baseRef, strandDir, force, allowNoTests, allowNoChangelog, allowUnaudited, noNotify)
+    let (res, code) = doBraidWeave(effectiveTarget, baseRef, strandDir, force, allowNoTests, allowNoChangelog, allowUnaudited, noNotify, testCmd)
     if code != 0:
       if res.hasKey("error"):
         let errMsg = res["error"].getStr()

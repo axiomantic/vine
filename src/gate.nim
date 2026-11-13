@@ -23,14 +23,15 @@ type BraidWeaveProc* = proc(
   allowNoTests: bool = false,
   allowNoChangelog: bool = false,
   allowUnaudited: bool = false,
-  noNotify: bool = false
+  noNotify: bool = false,
+  testCmdParam: string = ""
 ): tuple[output: JsonNode, exitCode: int] {.nimcall.}
 
 var gBraidWeaveProc*: BraidWeaveProc = nil
 
 proc recordGateFailure*(strandTaskId: string, priorState: string, errMsg: string) =
   if strandTaskId.len == 0: return
-  let restingState = if priorState == "PROVISIONED": "PROVISIONED" else: "IN_PROGRESS"
+  let restingState = if priorState in ["SUBMITTED", "READY_FOR_AUDIT", "RATIFIED", "AUDIT_RATIFIED", "PROVISIONED"]: priorState else: "IN_PROGRESS"
   var extraObj = newJObject()
   extraObj["last_gate_error"] = %errMsg
   discard updateGateRedis(strandTaskId, restingState, extraJson = $extraObj)
@@ -209,12 +210,10 @@ proc detectTestCommand*(dir: string): string =
   if fileExists(dir / "package.json"):
     if fileExists(dir / "pnpm-lock.yaml"): return "pnpm test"
     return "npm test"
-  if fileExists(dir / "build" / "CTestTestfile.cmake"):
-    return "ctest --test-dir build --output-on-failure"
-  if fileExists(dir / "CMakePresets.json") or fileExists(dir / "CMakeLists.txt"):
-    return "ctest --test-dir build --output-on-failure"
   for kind, p in walkDir(dir):
     if kind == pcFile and p.endsWith(".nimble"): return "nimble test"
+  if fileExists(dir / "build" / "CTestTestfile.cmake") or fileExists(dir / "build" / "CMakeCache.txt"):
+    return "ctest --test-dir build --output-on-failure"
   return ""
 
 type
@@ -712,6 +711,10 @@ proc doBraidGate*(
     var extraObj = newJObject()
     if isSkeleton:
       extraObj["is_skeleton"] = %"true"
+    if testCmdParam.len > 0:
+      extraObj["test_command"] = %testCmdParam
+    elif res.hasKey("test_command") and res["test_command"].getStr().len > 0:
+      extraObj["test_command"] = res["test_command"]
     if submit:
       var effAuthor = resolveStrandAuthor(authorParam, strandDir, manifest)
       if effAuthor.len == 0:
@@ -726,10 +729,14 @@ proc doBraidGate*(
         errObj["error"] = %vErr
         return (errObj, 1)
       discard submitStrandRedis(strandTaskId, gateToken, effAuthor, effAuthor, treeSha, isSkeleton = isSkeleton)
+      if extraObj.len > 0:
+        discard updateGateRedis(strandTaskId, "SUBMITTED", gateToken, treeSha, testOutputHash, extraJson = $extraObj)
       res["status"] = %"ready_for_audit"
       res["author"] = %effAuthor
     elif prevStatus == "AUDIT_RATIFIED" or prevStatus == "RATIFIED":
       discard updateGateRedis(strandTaskId, "RATIFIED", gateToken, treeSha, testOutputHash, extraJson = if extraObj.len > 0: $extraObj else: "")
+    elif prevStatus in ["READY_FOR_AUDIT", "SUBMITTED"] or priorState in ["SUBMITTED", "READY_FOR_AUDIT"]:
+      discard updateGateRedis(strandTaskId, "SUBMITTED", gateToken, treeSha, testOutputHash, extraJson = if extraObj.len > 0: $extraObj else: "")
     else:
       discard updateGateRedis(strandTaskId, "GATE_PASSED", gateToken, treeSha, testOutputHash, extraJson = if extraObj.len > 0: $extraObj else: "")
   elif submit:
@@ -1016,10 +1023,14 @@ proc doStrandAudit*(
 
     # Ticket Verification
     let ticketHash = if ticketParam.strip().len > 0: sha256(ticketParam.strip().toLowerAscii) else: ""
+    let perAuditorTicketHash = manifest.getOrDefault("audit_ticket_hash:" & auditor.toLowerAscii).getStr("")
     let recordedTicketHash = manifest.getOrDefault("audit_ticket_hash").getStr("")
+    let hasTicketReq = perAuditorTicketHash.len > 0 or recordedTicketHash.len > 0
     if not forceParam:
-      if recordedTicketHash.len > 0:
-        if ticketHash.len == 0 or ticketHash.toLowerAscii != recordedTicketHash.toLowerAscii:
+      if hasTicketReq:
+        let matchPer = perAuditorTicketHash.len > 0 and ticketHash.len > 0 and ticketHash.toLowerAscii == perAuditorTicketHash.toLowerAscii
+        let matchRec = recordedTicketHash.len > 0 and ticketHash.len > 0 and ticketHash.toLowerAscii == recordedTicketHash.toLowerAscii
+        if ticketHash.len == 0 or not (matchPer or matchRec):
           var errObj = newJObject()
           errObj["status"] = %"audit_violation"
           errObj["error"] = %"Audit ticket violation: Missing or invalid --ticket <hex> from rhizo listen delivery."
@@ -1100,9 +1111,13 @@ proc doStrandAudit*(
 
     # Ticket Verification (Mandatory on approve; --force CANNOT bypass ticket verification)
     let ticketHash = if ticketParam.strip().len > 0: sha256(ticketParam.strip().toLowerAscii) else: ""
+    let perAuditorTicketHash = manifest.getOrDefault("audit_ticket_hash:" & auditor.toLowerAscii).getStr("")
     let recordedTicketHash = manifest.getOrDefault("audit_ticket_hash").getStr("")
-    if recordedTicketHash.len > 0:
-      if ticketHash.len == 0 or ticketHash.toLowerAscii != recordedTicketHash.toLowerAscii:
+    let hasTicketReq = perAuditorTicketHash.len > 0 or recordedTicketHash.len > 0
+    if hasTicketReq:
+      let matchPer = perAuditorTicketHash.len > 0 and ticketHash.len > 0 and ticketHash.toLowerAscii == perAuditorTicketHash.toLowerAscii
+      let matchRec = recordedTicketHash.len > 0 and ticketHash.len > 0 and ticketHash.toLowerAscii == recordedTicketHash.toLowerAscii
+      if ticketHash.len == 0 or not (matchPer or matchRec):
         var errObj = newJObject()
         errObj["status"] = %"audit_violation"
         errObj["error"] = %"Audit ticket violation: Missing or invalid --ticket <hex> from rhizo listen delivery."
@@ -1187,8 +1202,16 @@ proc doStrandAudit*(
         if t.len >= 3:
           let f = t[3..^1].strip()
           let topDir = if f.contains('/'): f.split('/')[0] else: f
+          let fn = extractFilename(f)
           if f in [".envrc", ".venv"] or topDir in ["deps", "nimbledeps", "vendor", "node_modules", ".zig-cache", ".venv"]:
             continue
+          if fn == ".DS_Store" or f.endsWith(".DS_Store"):
+            continue
+          if line.startsWith("?? "):
+            if fn.endsWith(".kicad_prl") or fn.endsWith("-bak") or fn.endsWith(".lck") or
+               fn.endsWith(".lock") or fn.endsWith(".tmp") or fn.endsWith(".swp") or
+               fn.endsWith("~"):
+              continue
           hasDirty = true
           break
     if hasDirty:

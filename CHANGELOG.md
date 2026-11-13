@@ -9,7 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Release Version Bump (`vine.nimble`, `package.json`, `src/vine.nim`)**:
-  - Bumped version from 0.2.19 to 0.2.20.
+  - Bumped version from 0.2.20 to 0.2.21.
+
+## [0.2.21] - 2026-11-12
+
+### Fixed
+- **Per-Auditor Delivery Ticket Verification (`scripts/strand.lua`, `src/redis_client.nim`, `src/gate.nim`)**:
+  - Added support for per-auditor audit ticket hashes (`audit_ticket_hash:<auditor_lower>`) alongside scalar `audit_ticket_hash`.
+  - When `vine submit` multicasts `STRAND_SUBMITTED` across multiple listeners or auditors on `@<project>`, `vine audit approve`, `vine audit reject`, and Lua/Redis verification accept `--ticket <hex>` matching either `audit_ticket_hash:<auditor_lower>` or `audit_ticket_hash`.
+  - Updated `set_audit_ticket` in Lua and Redis client to accept optional `auditor_name` parameter and set `audit_ticket_hash:<auditor_lower>`.
+- **Gate & Weave State Preservation (`src/gate.nim`, `src/weave.nim`, `scripts/strand.lua`, `src/redis_client.nim`)**:
+  - Fixed `recordGateFailure` in `src/gate.nim` to preserve resting state if prior state was in `["SUBMITTED", "READY_FOR_AUDIT", "RATIFIED", "AUDIT_RATIFIED"]` instead of downgrading to `IN_PROGRESS` on gate test failures.
+  - Fixed `doBraidGate` in `src/gate.nim` when run without `--submit` so strands in `SUBMITTED` or `READY_FOR_AUDIT` state maintain `SUBMITTED` status instead of downgrading to `GATE_PASSED`.
+  - Added working `test_command` persistence to Redis extra attributes in `doBraidGate` and `submitStrandRedis` so subsequent `vine gate` or `vine weave` invocations reuse the working command.
+  - Added `testCmdParam` support to `doBraidWeave` and `--test-command` CLI flag parsing in `vine weave`.
+  - In `doBraidWeave`, when `--allow-unaudited` is used on a strand that already passed Keys 1 & 2 (`GATE_PASSED`, `SUBMITTED`, `RATIFIED`) with matching `merge_tree_sha`, skip re-running `doBraidGate`.
+  - In `scripts/strand.lua` and `src/redis_client.nim`, updated `weave` to allow weaving when `allow_unaudited` is true and strand state is `GATE_PASSED` or `SUBMITTED`.
+- **CMake & Nimble Test Detection Ordering (`src/gate.nim`)**:
+  - In `detectTestCommand`, reordered `.nimble` detection before unconfigured CMake so ESP-IDF + Nim hybrid repositories (such as `remocha`) run `nimble test` instead of attempting unconfigured CMake `ctest`.
+  - CMake `ctest --test-dir build --output-on-failure` is only returned if `build/CTestTestfile.cmake` or `build/CMakeCache.txt` exists.
+- **Ephemeral Tool Artifact Filtering in Git Status Checks (`src/gate.nim`, `src/strand.nim`)**:
+  - Updated porcelain status checks in `doStrandAudit approve` and `doStrandStatus` to ignore untracked (`?? `) ephemeral lock and backup files (`.kicad_prl`, `-bak`, `.lck`, `.lock`, `.tmp`, `.swp`, `~`, `.DS_Store`) left behind by external test tools (such as `kicad-cli`).
 
 ## [0.2.20] - 2026-11-11
 

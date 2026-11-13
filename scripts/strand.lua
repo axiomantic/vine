@@ -279,9 +279,12 @@ elseif action == "ratify" then
     local force = (ARGV[10] == "1" or string.lower(ARGV[10] or "") == "true")
 
     -- INVARIANT 0: Delivery Ticket Verification (Mandatory; --force cannot bypass ticket verification)
+    local per_auditor_hash = redis.call('HGET', strand_key, "audit_ticket_hash:" .. string.lower(auditor_name)) or ""
     local recorded_ticket_hash = redis.call('HGET', strand_key, "audit_ticket_hash") or ""
-    if recorded_ticket_hash ~= "" then
-        if ticket_hash == "" or string.lower(ticket_hash) ~= string.lower(recorded_ticket_hash) then
+    if per_auditor_hash ~= "" or recorded_ticket_hash ~= "" then
+        local match_per = (per_auditor_hash ~= "" and ticket_hash ~= "" and string.lower(ticket_hash) == string.lower(per_auditor_hash))
+        local match_rec = (recorded_ticket_hash ~= "" and ticket_hash ~= "" and string.lower(ticket_hash) == string.lower(recorded_ticket_hash))
+        if ticket_hash == "" or not (match_per or match_rec) then
             return redis.error_reply("ERR: Audit ticket violation: Missing or invalid --ticket <hex> from rhizo listen delivery.")
         end
     elseif ticket_hash ~= "" then
@@ -393,10 +396,13 @@ elseif action == "reject" then
     local force = (ARGV[9] == "1" or string.lower(ARGV[9] or "") == "true")
 
     -- Delivery Ticket Verification
+    local per_auditor_hash = redis.call('HGET', strand_key, "audit_ticket_hash:" .. string.lower(auditor_name)) or ""
     local recorded_ticket_hash = redis.call('HGET', strand_key, "audit_ticket_hash") or ""
     if not force then
-        if recorded_ticket_hash ~= "" then
-            if ticket_hash == "" or string.lower(ticket_hash) ~= string.lower(recorded_ticket_hash) then
+        if per_auditor_hash ~= "" or recorded_ticket_hash ~= "" then
+            local match_per = (per_auditor_hash ~= "" and ticket_hash ~= "" and string.lower(ticket_hash) == string.lower(per_auditor_hash))
+            local match_rec = (recorded_ticket_hash ~= "" and ticket_hash ~= "" and string.lower(ticket_hash) == string.lower(recorded_ticket_hash))
+            if ticket_hash == "" or not (match_per or match_rec) then
                 return redis.error_reply("ERR: Audit ticket violation: Missing or invalid --ticket <hex> from rhizo listen delivery.")
             end
         elseif ticket_hash ~= "" then
@@ -456,7 +462,8 @@ elseif action == "weave" then
     local current_state = meta[1] or ""
     local project = meta[2] or ""
 
-    if current_state ~= "RATIFIED" then
+    local allow_unaudited = (ARGV[6] == "1" or string.lower(ARGV[6] or "") == "true")
+    if current_state ~= "RATIFIED" and not (allow_unaudited and (current_state == "GATE_PASSED" or current_state == "SUBMITTED")) then
         return redis.error_reply("ERR: Cannot weave unratified strand '" .. strand_id .. "' (current state: " .. current_state .. ", required: RATIFIED)")
     end
 
@@ -481,7 +488,7 @@ elseif action == "weave" then
         "woven_by", by_agent
     )
 
-    update_strand_state(strand_id, "RATIFIED", "WOVEN", project)
+    update_strand_state(strand_id, current_state, "WOVEN", project)
 
     return cjson.encode({
         status = "OK",
@@ -745,6 +752,7 @@ elseif action == "prune" or action == "delete" then
 -- 11. ACTION: set_audit_ticket
 -- ARGV[3]: strand_id
 -- ARGV[4]: ticket_hash
+-- ARGV[5]: auditor_name (optional)
 --------------------------------------------------------------------------------
 elseif action == "set_audit_ticket" then
     local strand_id = string.lower(ARGV[3] or "")
@@ -753,12 +761,16 @@ elseif action == "set_audit_ticket" then
     end
 
     local ticket_hash = ARGV[4] or ""
+    local auditor_name = ARGV[5] or ""
     local strand_key = prefix .. "strand:" .. strand_id
     if redis.call('EXISTS', strand_key) == 0 then
         return redis.error_reply("ERR: Strand '" .. strand_id .. "' does not exist")
     end
 
     redis.call('HSET', strand_key, "audit_ticket_hash", ticket_hash)
+    if auditor_name ~= "" then
+        redis.call('HSET', strand_key, "audit_ticket_hash:" .. string.lower(auditor_name), ticket_hash)
+    end
 
     return cjson.encode({
         status = "OK",

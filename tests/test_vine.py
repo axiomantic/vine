@@ -1773,6 +1773,237 @@ def test_vine_weave_task_id_from_canonical_root():
                 shutil.rmtree(os.path.dirname(os.path.dirname(strand_path)), ignore_errors=True)
 
 
+def test_vine_cmake_and_nimble_test_detection():
+    """Verify detectTestCommand prioritizes .nimble over unconfigured CMake, and requires build/CTestTestfile.cmake or build/CMakeCache.txt for ctest."""
+    with tempfile.TemporaryDirectory(prefix="vine_test_cmd_") as tmpdir:
+        # Case 1: ESP-IDF / Nim hybrid repo with CMakeLists.txt and .nimble -> must detect nimble test
+        hybrid_dir = os.path.join(tmpdir, "hybrid")
+        subprocess.run(["git", "init", "-b", "main", "-q", hybrid_dir], check=True)
+        subprocess.run(["git", "-C", hybrid_dir, "config", "user.email", "agent@vine.mesh"], check=True)
+        subprocess.run(["git", "-C", hybrid_dir, "config", "user.name", "Vine Agent"], check=True)
+        with open(os.path.join(hybrid_dir, "CMakeLists.txt"), "w") as f:
+            f.write("cmake_minimum_required(VERSION 3.16)\nproject(firmware)\n")
+        with open(os.path.join(hybrid_dir, "hybrid.nimble"), "w") as f:
+            f.write("version = \"0.1.0\"\nauthor = \"Test\"\n")
+        subprocess.run(["git", "-C", hybrid_dir, "add", "."], check=True)
+        subprocess.run(["git", "-C", hybrid_dir, "commit", "-q", "-m", "init"], check=True)
+        code, out, err = run_vine("gate", "--dir", hybrid_dir, "--json")
+        res = json.loads(out)
+        assert res.get("test_command") == "nimble test"
+
+        # Case 2: Configured CMake project with build/CTestTestfile.cmake -> detects ctest
+        cmake_dir = os.path.join(tmpdir, "cmake_proj")
+        subprocess.run(["git", "init", "-b", "main", "-q", cmake_dir], check=True)
+        subprocess.run(["git", "-C", cmake_dir, "config", "user.email", "agent@vine.mesh"], check=True)
+        subprocess.run(["git", "-C", cmake_dir, "config", "user.name", "Vine Agent"], check=True)
+        build_dir = os.path.join(cmake_dir, "build")
+        os.makedirs(build_dir, exist_ok=True)
+        with open(os.path.join(cmake_dir, "CMakeLists.txt"), "w") as f:
+            f.write("cmake_minimum_required(VERSION 3.16)\nproject(proj)\n")
+        with open(os.path.join(build_dir, "CTestTestfile.cmake"), "w") as f:
+            f.write("# CTest testfile\n")
+        subprocess.run(["git", "-C", cmake_dir, "add", "."], check=True)
+        subprocess.run(["git", "-C", cmake_dir, "commit", "-q", "-m", "init"], check=True)
+        code, out, err = run_vine("gate", "--dir", cmake_dir, "--json")
+        res = json.loads(out)
+        assert res.get("test_command") == "ctest --test-dir build --output-on-failure"
+
+        # Case 3: Unconfigured CMake project without build/ and without nimble -> does not blindly return ctest
+        unconf_dir = os.path.join(tmpdir, "unconf")
+        subprocess.run(["git", "init", "-b", "main", "-q", unconf_dir], check=True)
+        subprocess.run(["git", "-C", unconf_dir, "config", "user.email", "agent@vine.mesh"], check=True)
+        subprocess.run(["git", "-C", unconf_dir, "config", "user.name", "Vine Agent"], check=True)
+        with open(os.path.join(unconf_dir, "CMakeLists.txt"), "w") as f:
+            f.write("cmake_minimum_required(VERSION 3.16)\nproject(proj)\n")
+        subprocess.run(["git", "-C", unconf_dir, "add", "."], check=True)
+        subprocess.run(["git", "-C", unconf_dir, "commit", "-q", "-m", "init"], check=True)
+        code, out, err = run_vine("gate", "--dir", unconf_dir, "--json")
+        res = json.loads(out)
+        assert res.get("test_command") is None
+
+
+def test_vine_ephemeral_tool_artifact_filtering():
+    """Verify untracked ephemeral tool artifacts (.kicad_prl, -bak, .lck, .tmp, .swp, .DS_Store) are ignored in porcelain dirty status checks."""
+    with tempfile.TemporaryDirectory(prefix="vine_ephemeral_") as repo_dir:
+        subprocess.run(["git", "init", "-b", "main", "-q", repo_dir], check=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.email", "agent@vine.mesh"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.name", "Vine Agent"], check=True)
+
+        os.makedirs(os.path.join(repo_dir, "src"), exist_ok=True)
+        with open(os.path.join(repo_dir, "src", "main.nim"), "w") as f:
+            f.write("echo \"main\"\n")
+        subprocess.run(["git", "-C", repo_dir, "add", "src/main.nim"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "commit", "-q", "-m", "Initial commit"], check=True)
+
+        task_id = f"task-ephemeral-{int(time.time() * 1000)}"
+        code, out, err = run_vine("new", task_id, "--repo", repo_dir, "--branch", f"strand/{task_id}", "--worktree")
+        assert code == 0
+        strand_path = json.loads(out)["strand_path"]
+
+        try:
+            with open(os.path.join(strand_path, "src", "feature.nim"), "w") as f:
+                f.write("proc feature*(): int = 100\n")
+            with open(os.path.join(strand_path, "src", "main.nim"), "w") as f:
+                f.write("import feature\necho feature()\n")
+            subprocess.run(["git", "-C", strand_path, "add", "src/feature.nim", "src/main.nim"], check=True)
+            subprocess.run(["git", "-C", strand_path, "commit", "-q", "-m", "feat: implement feature"], check=True)
+
+            # Touch untracked ephemeral tool artifacts
+            with open(os.path.join(strand_path, "project.kicad_prl"), "w") as f:
+                f.write("{}\n")
+            with open(os.path.join(strand_path, "board.kicad_pcb-bak"), "w") as f:
+                f.write("bak\n")
+            with open(os.path.join(strand_path, "cad.lck"), "w") as f:
+                f.write("lock\n")
+            with open(os.path.join(strand_path, ".DS_Store"), "w") as f:
+                f.write("ds\n")
+            with open(os.path.join(strand_path, "runner.tmp"), "w") as f:
+                f.write("tmp\n")
+            with open(os.path.join(strand_path, ".edit.swp"), "w") as f:
+                f.write("swp\n")
+
+            # vine status must ignore these ephemeral files and report clean
+            s_code, s_out, s_err = run_vine("status", "--dir", strand_path, "--json")
+            assert s_code == 0
+            s_json = json.loads(s_out)
+            assert s_json.get("dirty_files") == []
+
+            # Submit from strand
+            sub_code, sub_out, sub_err = run_vine("submit", "--dir", strand_path, "--author", "rhizo-sequoia", "--allow-no-tests", "--json")
+            assert sub_code == 0
+
+            # Auditor inspects diff
+            insp_code, _, _ = run_vine("audit", "inspect", "--dir", strand_path)
+            assert insp_code == 0
+
+            # Auditor approve must NOT fail with audit_dirty_strand despite untracked ephemeral lock files
+            a_code, a_out, a_err = run_vine("audit", "approve", "--dir", strand_path, "--auditor", "rhizo-kestrel", "--evidence", "Verified feature.nim feature proc implementation", "--json")
+            assert a_code == 0, f"Approval failed unexpectedly: {a_err}\nOut: {a_out}"
+
+        finally:
+            if os.path.exists(strand_path):
+                subprocess.run(["git", "-C", repo_dir, "worktree", "remove", "--force", strand_path], capture_output=True)
+                subprocess.run(["git", "-C", repo_dir, "worktree", "prune"], capture_output=True)
+                shutil.rmtree(os.path.dirname(os.path.dirname(strand_path)), ignore_errors=True)
+
+
+def test_vine_per_auditor_ticket_verification():
+    """Verify per-auditor audit ticket verification accepts matching per-auditor or global ticket, and rejects mismatched."""
+    with tempfile.TemporaryDirectory(prefix="vine_per_aud_") as repo_dir:
+        subprocess.run(["git", "init", "-b", "main", "-q", repo_dir], check=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.email", "agent@vine.mesh"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.name", "Vine Agent"], check=True)
+
+        os.makedirs(os.path.join(repo_dir, "src"), exist_ok=True)
+        with open(os.path.join(repo_dir, "src", "main.nim"), "w") as f:
+            f.write("echo \"main\"\n")
+        subprocess.run(["git", "-C", repo_dir, "add", "src/main.nim"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "commit", "-q", "-m", "Initial commit"], check=True)
+
+        task_id = f"task-per-aud-{int(time.time() * 1000)}"
+        code, out, err = run_vine("new", task_id, "--repo", repo_dir, "--branch", f"strand/{task_id}", "--worktree")
+        assert code == 0
+        strand_path = json.loads(out)["strand_path"]
+
+        try:
+            with open(os.path.join(strand_path, "src", "core.nim"), "w") as f:
+                f.write("proc core*(): int = 99\n")
+            with open(os.path.join(strand_path, "src", "main.nim"), "w") as f:
+                f.write("import core\necho core()\n")
+            subprocess.run(["git", "-C", strand_path, "add", "src/core.nim", "src/main.nim"], check=True)
+            subprocess.run(["git", "-C", strand_path, "commit", "-q", "-m", "feat: add core logic"], check=True)
+
+            sub_code, sub_out, sub_err = run_vine("submit", "--dir", strand_path, "--author", "rhizo-sequoia", "--allow-no-tests", "--json")
+            assert sub_code == 0
+
+            # Set per-auditor ticket for rhizo-auditor-1
+            auditor_ticket = "a1b2c3d4e5f60718"
+            st_code, st_out, st_err = run_vine("audit", "set-ticket", task_id, auditor_ticket, "--auditor", "rhizo-auditor-1")
+            assert st_code == 0
+
+            # Auditor 1 inspects
+            run_vine("audit", "inspect", "--dir", strand_path)
+
+            # Mismatched ticket for auditor 1 -> fails
+            bad_code, bad_out, bad_err = run_vine("audit", "approve", "--dir", strand_path, "--auditor", "rhizo-auditor-1", "--ticket", "wrongticket", "--evidence", "Verified core.nim core proc implementation", "--json")
+            assert bad_code != 0
+            assert "Audit ticket violation" in (bad_out + bad_err)
+
+            # Correct ticket for auditor 1 -> passes
+            good_code, good_out, good_err = run_vine("audit", "approve", "--dir", strand_path, "--auditor", "rhizo-auditor-1", "--ticket", auditor_ticket, "--evidence", "Verified core.nim core proc implementation", "--json")
+            assert good_code == 0, f"Approval failed: {good_err}\nOut: {good_out}"
+
+        finally:
+            if os.path.exists(strand_path):
+                subprocess.run(["git", "-C", repo_dir, "worktree", "remove", "--force", strand_path], capture_output=True)
+                subprocess.run(["git", "-C", repo_dir, "worktree", "prune"], capture_output=True)
+                shutil.rmtree(os.path.dirname(os.path.dirname(strand_path)), ignore_errors=True)
+
+
+def test_vine_gate_state_preservation_and_weave_unaudited():
+    """Verify running vine gate on a SUBMITTED strand preserves SUBMITTED state, and weave --allow-unaudited skips gate when tree matches."""
+    with tempfile.TemporaryDirectory(prefix="vine_state_pres_") as repo_dir:
+        subprocess.run(["git", "init", "-b", "main", "-q", repo_dir], check=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.email", "agent@vine.mesh"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "config", "user.name", "Vine Agent"], check=True)
+
+        os.makedirs(os.path.join(repo_dir, "src"), exist_ok=True)
+        with open(os.path.join(repo_dir, "src", "main.nim"), "w") as f:
+            f.write("echo \"main\"\n")
+        subprocess.run(["git", "-C", repo_dir, "add", "src/main.nim"], check=True)
+        subprocess.run(["git", "-C", repo_dir, "commit", "-q", "-m", "Initial commit"], check=True)
+
+        task_id = f"task-state-pres-{int(time.time() * 1000)}"
+        code, out, err = run_vine("new", task_id, "--repo", repo_dir, "--branch", f"strand/{task_id}", "--worktree")
+        assert code == 0
+        strand_path = json.loads(out)["strand_path"]
+
+        try:
+            with open(os.path.join(strand_path, "src", "worker.nim"), "w") as f:
+                f.write("proc worker*(): string = \"active\"\n")
+            with open(os.path.join(strand_path, "src", "main.nim"), "w") as f:
+                f.write("import worker\necho worker()\n")
+            subprocess.run(["git", "-C", strand_path, "add", "src/worker.nim", "src/main.nim"], check=True)
+            subprocess.run(["git", "-C", strand_path, "commit", "-q", "-m", "feat: add worker logic"], check=True)
+
+            sub_code, sub_out, sub_err = run_vine("submit", "--dir", strand_path, "--author", "rhizo-sequoia", "--allow-no-tests", "--json")
+            assert sub_code == 0
+
+            # Verify initial status is SUBMITTED / READY_FOR_AUDIT
+            st_code, st_out, st_err = run_vine("status", "--dir", strand_path, "--json")
+            assert st_code == 0
+            st_json = json.loads(st_out)
+            assert st_json.get("status") in ["READY_FOR_AUDIT", "SUBMITTED"]
+            assert st_json.get("lifecycle_state") == "READY_FOR_AUDIT"
+
+            # Re-running vine gate (without --submit) must PRESERVE SUBMITTED state!
+            g_code, g_out, g_err = run_vine("gate", "--dir", strand_path, "--allow-no-tests", "--json")
+            assert g_code == 0
+
+            st2_code, st2_out, st2_err = run_vine("status", "--dir", strand_path, "--json")
+            assert st2_code == 0
+            st2_json = json.loads(st2_out)
+            assert st2_json.get("status") in ["READY_FOR_AUDIT", "SUBMITTED"], f"Expected SUBMITTED/READY_FOR_AUDIT but got {st2_json.get('status')}"
+            assert st2_json.get("lifecycle_state") == "READY_FOR_AUDIT"
+
+            # vine weave --allow-unaudited must succeed, weaving directly into trunk
+            w_code, w_out, w_err = run_vine("weave", task_id, "--allow-unaudited", cwd=repo_dir)
+            assert w_code == 0, f"Weave --allow-unaudited failed: {w_err}\nOut: {w_out}"
+
+            # Verify strand marked WOVEN / MERGED
+            st3_code, st3_out, st3_err = run_vine("status", task_id, "--json", cwd=repo_dir)
+            assert st3_code == 0, f"Status failed: {st3_err}\nOut: {st3_out}"
+            st3_json = json.loads(st3_out)
+            assert st3_json.get("status") in ["WOVEN", "MERGED"]
+            assert st3_json.get("stored_status") in ["WOVEN", "MERGED"]
+
+        finally:
+            if os.path.exists(strand_path):
+                subprocess.run(["git", "-C", repo_dir, "worktree", "remove", "--force", strand_path], capture_output=True)
+                subprocess.run(["git", "-C", repo_dir, "worktree", "prune"], capture_output=True)
+                shutil.rmtree(os.path.dirname(os.path.dirname(strand_path)), ignore_errors=True)
+
+
 if __name__ == "__main__":
     import inspect
     import traceback

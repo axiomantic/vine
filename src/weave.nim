@@ -13,7 +13,8 @@ proc doBraidWeave*(
   allowNoTests: bool = false,
   allowNoChangelog: bool = false,
   allowUnaudited: bool = false,
-  noNotify: bool = false
+  noNotify: bool = false,
+  testCmdParam: string = ""
 ): tuple[output: JsonNode, exitCode: int] =
   var strandDir = if strandDirParam.len > 0: strandDirParam.normalizedPath else: getCurrentDir()
   var manifest = findStrandManifest(if strandDirParam.len > 0: strandDirParam else: branchParam)
@@ -35,17 +36,33 @@ proc doBraidWeave*(
 
   let tid = if manifest != nil: manifest.getOrDefault("id").getStr(manifest.getOrDefault("task_id").getStr("")) else: ""
 
+  let effectiveBase = if baseRefParam.len > 0: baseRefParam
+                      elif manifest != nil and manifest.hasKey("base_branch"): manifest["base_branch"].getStr()
+                      else: "main"
+
   # Step 1: Run Gate check if not already verified green
   let isAlreadyRatified = manifest != nil and (
     manifest.getOrDefault("status").getStr("") in ["AUDIT_RATIFIED", "RATIFIED"] or
     manifest.getOrDefault("lifecycle_state").getStr("") in ["AUDIT_RATIFIED", "RATIFIED"] or
     manifest.getOrDefault("state").getStr("") in ["AUDIT_RATIFIED", "RATIFIED"]
   )
-  if not force and not isAlreadyRatified:
-    let effectiveBase = if baseRefParam.len > 0: baseRefParam
-                        elif manifest != nil and manifest.hasKey("base_branch"): manifest["base_branch"].getStr()
-                        else: "main"
-    let (gateRes, gateCode) = doBraidGate(branchParam, effectiveBase, strandDir, allowNoTests = allowNoTests, allowNoChangelog = allowNoChangelog)
+
+  let isAlreadyPassedGate = manifest != nil and allowUnaudited and (
+    manifest.getOrDefault("state").getStr("") in ["GATE_PASSED", "SUBMITTED", "RATIFIED"] or
+    manifest.getOrDefault("status").getStr("") in ["READY_FOR_WEAVE", "GATE_PASSED", "READY_FOR_AUDIT", "SUBMITTED", "AUDIT_RATIFIED", "RATIFIED"] or
+    manifest.getOrDefault("lifecycle_state").getStr("") in ["GATE_PASSED", "SUBMITTED", "RATIFIED"]
+  ) and (
+    let recTree = manifest.getOrDefault("merge_tree_sha").getStr("");
+    recTree.len > 0 and recTree == getMergeTreeSha(strandDir, effectiveBase)
+  )
+
+  if not force and not isAlreadyRatified and not isAlreadyPassedGate:
+    let (gateRes, gateCode) = doBraidGate(
+      branchParam, effectiveBase, strandDir,
+      allowNoTests = allowNoTests,
+      allowNoChangelog = allowNoChangelog,
+      testCmdParam = testCmdParam
+    )
     if gateCode != 0:
       var errObj = newJObject()
       errObj["status"] = %"weave_rejected"
@@ -206,7 +223,7 @@ proc doBraidWeave*(
                 elif resolveSessionAgent().len > 0: resolveSessionAgent()
                 else: "orchestrator"
   if tid.len > 0:
-    discard weaveStrandRedis(tid, headSha, byAgent)
+    discard weaveStrandRedis(tid, headSha, byAgent, allowUnaudited = (allowUnaudited or force))
     if findExe("rhizo").len > 0:
       let gateToken = if manifest != nil: manifest.getOrDefault("gate_token").getStr("") else: ""
       discard execCmdEx("rhizo task complete " & quoteShell(tid) & " --gate-token " & quoteShell(gateToken))
