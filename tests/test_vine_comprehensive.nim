@@ -84,8 +84,8 @@ suite "Vine Comprehensive In-Process Verification Suite (39 Tests)":
     check Version == canonicalVersion
 
   test "02: test_vine_skill_reconciliation":
-    let rootSkill = readFile(initialWorkingDir / "SKILL.md")
-    let pkgSkill = readFile(initialWorkingDir / "skills" / "vine" / "SKILL.md")
+    let rootSkill = readFile(initialWorkingDir / "SKILL.md").replace("\r\n", "\n")
+    let pkgSkill = readFile(initialWorkingDir / "skills" / "vine" / "SKILL.md").replace("\r\n", "\n")
     check rootSkill == pkgSkill
     check rootSkill.contains("Three-Key Gate")
     check rootSkill.contains("The Worker is NOT the Auditor")
@@ -303,9 +303,14 @@ test_command = "pytest tests/ -v"
       let repoDir = createRepo("vine_compiler_fail")
       defer: removeDir(repoDir)
       commitFile(repoDir, "README.md", "# Project\n", "Initial commit")
-      writeFile(repoDir / "fail.sh", "#!/bin/sh\necho 'Simulated compiler error'\nexit 1\n")
-      writeFile(repoDir / "vine.toml", "[verification]\ntest_command = \"sh fail.sh\"\n")
-      doAssert gitRun(repoDir, "add vine.toml fail.sh").code == 0
+      when defined(windows):
+        writeFile(repoDir / "fail.bat", "@echo off\r\necho Simulated compiler error\r\nexit /b 1\r\n")
+        writeFile(repoDir / "vine.toml", "[verification]\ntest_command = \"cmd /c fail.bat\"\n")
+        doAssert gitRun(repoDir, "add vine.toml fail.bat").code == 0
+      else:
+        writeFile(repoDir / "fail.sh", "#!/bin/sh\necho 'Simulated compiler error'\nexit 1\n")
+        writeFile(repoDir / "vine.toml", "[verification]\ntest_command = \"sh fail.sh\"\n")
+        doAssert gitRun(repoDir, "add vine.toml fail.sh").code == 0
       doAssert gitRun(repoDir, "commit -q -m \"chore: add vine.toml and fail.sh\"").code == 0
 
       let taskId = nextTaskId("task-sem")
@@ -471,7 +476,7 @@ test_command = "pytest tests/ -v"
       let strandPath = parseJson(rNew.outStr)["strand_path"].getStr()
       defer: cleanupStrand(repoDir, strandPath)
 
-      let passCmd = "sh -c 'echo Tests passed'"
+      let passCmd = when defined(windows): "cmd /c echo Tests passed" else: "sh -c 'echo Tests passed'"
       let r1 = runVineInProcess(["gate", "--dir", strandPath, "--base", "main", "--test-command", passCmd, "--json"])
       check r1.code == 0
       let d1 = parseJson(r1.outStr)
@@ -479,7 +484,7 @@ test_command = "pytest tests/ -v"
       check d1["key2_semantic"].getStr() == "PASS"
       check d1["test_command"].getStr() == passCmd
 
-      let failCmd = "sh -c 'echo \"Synthetic test failure\" >&2; exit 42'"
+      let failCmd = when defined(windows): "cmd /c \"echo Synthetic test failure 1>&2 && exit /b 42\"" else: "sh -c 'echo \"Synthetic test failure\" >&2; exit 42'"
       let r2 = runVineInProcess(["gate", "--dir", strandPath, "--base", "main", "--test-command", failCmd, "--json"])
       check r2.code == 2
       let d2 = parseJson(r2.outStr)
@@ -487,13 +492,19 @@ test_command = "pytest tests/ -v"
       check d2["key2_semantic"].getStr() == "FAIL"
       check d2["compiler_output"].getStr().contains("Synthetic test failure")
 
-      let r3 = runVineInProcess(["gate", "--dir", strandPath, "--base", "main", "--json", "--", "sh", "-c", "echo Passing via double dash"])
+      let r3 = when defined(windows):
+                 runVineInProcess(["gate", "--dir", strandPath, "--base", "main", "--json", "--", "cmd", "/c", "echo Passing via double dash"])
+               else:
+                 runVineInProcess(["gate", "--dir", strandPath, "--base", "main", "--json", "--", "sh", "-c", "echo Passing via double dash"])
       check r3.code == 0
       let d3 = parseJson(r3.outStr)
       check d3["clean"].getBool() == true
       check d3["key2_semantic"].getStr() == "PASS"
 
-      let r4 = runVineInProcess(["gate", "--dir", strandPath, "--base", "main", "--json", "--", "sh", "-c", "echo Synthetic failure via double dash >&2; exit 42"])
+      let r4 = when defined(windows):
+                 runVineInProcess(["gate", "--dir", strandPath, "--base", "main", "--json", "--", "cmd", "/c", "echo Synthetic failure via double dash 1>&2 & exit /b 42"])
+               else:
+                 runVineInProcess(["gate", "--dir", strandPath, "--base", "main", "--json", "--", "sh", "-c", "echo Synthetic failure via double dash >&2; exit 42"])
       check r4.code == 2
       let d4 = parseJson(r4.outStr)
       check d4["clean"].getBool() == false
@@ -540,7 +551,7 @@ test_command = "pytest tests/ -v"
       check d3["commits_ahead"].getInt() == 1
       check d3["dirty_count"].getInt() == 0
 
-      let rFail = runVineInProcess(["gate", "--dir", strandPath, "--base", "develop", "--test-command", "sh -c 'exit 1'", "--json"])
+      let rFail = runVineInProcess(["gate", "--dir", strandPath, "--base", "develop", "--test-command", (when defined(windows): "cmd /c exit /b 1" else: "sh -c 'exit 1'"), "--json"])
       check rFail.code == 2
       let rSFail = runVineInProcess(["status", "--dir", strandPath, "--json"])
       check rSFail.code == 0
@@ -1028,18 +1039,32 @@ test_command = "pytest tests/ -v"
       createDir(strandPath / "tests")
       writeFile(strandPath / "src" / "contract.nim", "proc performAction*() =\n  raise newException(CatchableError, \"UNIMPLEMENTED_CONTRACT\")\n")
       writeFile(strandPath / "tests" / "test_contract.nim", "import ../src/contract\nperformAction()\n")
-      writeFile(strandPath / "run_tests.sh", "#!/bin/sh\necho 'UNIMPLEMENTED_CONTRACT' >&2\nexit 1\n")
-      doAssert gitRun(strandPath, "add src/contract.nim tests/test_contract.nim run_tests.sh").code == 0
-      doAssert gitRun(strandPath, "commit -q -m \"feat: pre-plan contract skeleton\"").code == 0
+      when defined(windows):
+        writeFile(strandPath / "run_tests.bat", "@echo off\r\necho UNIMPLEMENTED_CONTRACT 1>&2\r\nexit /b 1\r\n")
+        doAssert gitRun(strandPath, "add src/contract.nim tests/test_contract.nim run_tests.bat").code == 0
+        doAssert gitRun(strandPath, "commit -q -m \"feat: pre-plan contract skeleton\"").code == 0
 
-      let rFail = runVineInProcess(["gate", "--dir", strandPath, "--json", "--", "sh", "run_tests.sh"])
-      check rFail.code in [2, 3]
+        let rFail = runVineInProcess(["gate", "--dir", strandPath, "--json", "--", "cmd", "/c", "run_tests.bat"])
+        check rFail.code in [2, 3]
 
-      let rPass = runVineInProcess(["gate", "--dir", strandPath, "--skeleton", "--json", "--", "sh", "run_tests.sh"])
-      check rPass.code == 0
-      check parseJson(rPass.outStr){"is_skeleton"}.getBool(false) == true
+        let rPass = runVineInProcess(["gate", "--dir", strandPath, "--skeleton", "--json", "--", "cmd", "/c", "run_tests.bat"])
+        check rPass.code == 0
+        check parseJson(rPass.outStr){"is_skeleton"}.getBool(false) == true
 
-      let rSub = runVineInProcess(["submit", "--dir", strandPath, "--author", "worker-skel", "--skeleton", "--json", "--", "sh", "run_tests.sh"])
+        let rSub = runVineInProcess(["submit", "--dir", strandPath, "--author", "worker-skel", "--skeleton", "--json", "--", "cmd", "/c", "run_tests.bat"])
+      else:
+        writeFile(strandPath / "run_tests.sh", "#!/bin/sh\necho 'UNIMPLEMENTED_CONTRACT' >&2\nexit 1\n")
+        doAssert gitRun(strandPath, "add src/contract.nim tests/test_contract.nim run_tests.sh").code == 0
+        doAssert gitRun(strandPath, "commit -q -m \"feat: pre-plan contract skeleton\"").code == 0
+
+        let rFail = runVineInProcess(["gate", "--dir", strandPath, "--json", "--", "sh", "run_tests.sh"])
+        check rFail.code in [2, 3]
+
+        let rPass = runVineInProcess(["gate", "--dir", strandPath, "--skeleton", "--json", "--", "sh", "run_tests.sh"])
+        check rPass.code == 0
+        check parseJson(rPass.outStr){"is_skeleton"}.getBool(false) == true
+
+        let rSub = runVineInProcess(["submit", "--dir", strandPath, "--author", "worker-skel", "--skeleton", "--json", "--", "sh", "run_tests.sh"])
       check rSub.code == 0
       let sd = parseJson(rSub.outStr)
       check sd{"is_skeleton"}.getBool(false) == true

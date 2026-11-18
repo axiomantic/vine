@@ -1,8 +1,7 @@
 # braid/tests/config.nims
-if dirExists("/Users/eek/Development/tripwire/src"):
-  switch("path", "/Users/eek/Development/tripwire/src")
-elif dirExists("../../tripwire/src"):
-  switch("path", "../../tripwire/src")
+let siblingTripwire = thisDir() & "/../../tripwire/src"
+if dirExists(siblingTripwire):
+  switch("path", siblingTripwire)
 switch("path", "../src")
 switch("import", "tripwire/auto")
 switch("define", "tripwireActive")
