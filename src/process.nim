@@ -98,9 +98,12 @@ proc execCmdExWithTimeout*(
       finalExitCode = peekExitCode(p)
       if finalExitCode != -1:
         if p.outputStream != nil:
-          try:
-            captured.add(p.outputStream.readAll())
-          except CatchableError: discard
+          while p.hasData():
+            try:
+              let chunk = p.outputStream.readStr(4096)
+              if chunk.len == 0: break
+              captured.add(chunk)
+            except CatchableError: break
         break
     else:
       finalExitCode = peekExitCode(p)
@@ -125,6 +128,14 @@ proc execCmdExWithTimeout*(
         if rem > 0:
           for i in 0 ..< rem: captured.add(buf[i])
         else: break
+    elif defined(windows):
+      if p.outputStream != nil:
+        while p.hasData():
+          try:
+            let chunk = p.outputStream.readStr(4096)
+            if chunk.len == 0: break
+            captured.add(chunk)
+          except CatchableError: break
     close(p)
     return (captured, -1, true, elapsedSec)
 

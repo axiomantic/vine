@@ -173,7 +173,7 @@ proc doBraidWeave*(
   else:
     # Co-located strand: fetch branch directly if it's an isolated clone (rift)
     let isWorktree = (manifest != nil and manifest.hasKey("tool") and manifest["tool"].getStr() == "git-worktree") or
-                     (execCmdEx("git -C " & quoteShell(canonicalRepo) & " worktree list").output.contains(strandDir))
+                     (execCmdEx("git -C " & quoteShell(canonicalRepo) & " worktree list").output.replace('\\', '/').contains(strandDir.replace('\\', '/')))
     if not isWorktree and dirExists(strandDir):
       let fetchCmd = "git -C " & quoteShell(canonicalRepo) & " fetch " & quoteShell(strandDir) & " " & quoteShell(branch & ":" & branch)
       let (fOut, fCode) = execCmdEx(fetchCmd)
@@ -201,7 +201,7 @@ proc doBraidWeave*(
 
   if isColocated:
     let isWorktree = (manifest != nil and manifest.hasKey("tool") and manifest["tool"].getStr() == "git-worktree") or
-                     (execCmdEx("git -C " & quoteShell(canonicalRepo) & " worktree list").output.contains(strandDir))
+                     (execCmdEx("git -C " & quoteShell(canonicalRepo) & " worktree list").output.replace('\\', '/').contains(strandDir.replace('\\', '/')))
     if isWorktree:
       discard execCmdEx("git -C " & quoteShell(canonicalRepo) & " worktree remove --force " & quoteShell(strandDir))
       discard execCmdEx("git -C " & quoteShell(canonicalRepo) & " worktree prune")

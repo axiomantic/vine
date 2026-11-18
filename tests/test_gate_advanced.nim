@@ -28,10 +28,10 @@ proc createTestGitRepo(prefix: string): string =
   createDir(repo)
   discard execCmdEx("git init -b main -q " & quoteShell(repo))
   gitRun(repo, "config user.email agent@braid.mesh")
-  gitRun(repo, "config user.name 'Braid Agent'")
+  gitRun(repo, "config user.name \"Braid Agent\"")
   writeFile(repo / "README.md", "# Test Repo\n")
   gitRun(repo, "add README.md")
-  gitRun(repo, "commit -q -m 'Initial commit'")
+  gitRun(repo, "commit -q -m \"Initial commit\"")
   return repo
 
 suite "Vine Advanced Two-Key Gate & Timeout Rail Suite":
@@ -64,7 +64,7 @@ suite "Vine Advanced Two-Key Gate & Timeout Rail Suite":
       # Commit a change in strand
       writeFile(strandPath / "feature.txt", "Some code\n")
       gitRun(strandPath, "add feature.txt")
-      gitRun(strandPath, "commit -q -m 'feat: some code'")
+      gitRun(strandPath, "commit -q -m \"feat: some code\"")
 
       # Gate WITHOUT allowNoTests MUST fail with exit code 2 and preserve IN_PROGRESS
       let (gFailRes, gFailCode) = doBraidGate(
@@ -111,9 +111,12 @@ suite "Vine Advanced Two-Key Gate & Timeout Rail Suite":
         except CatchableError: discard
         removeDir(repo)
 
-      writeFile(repo / "vine.toml", "[verification]\ntest_command = \"sh -c 'exit 0'\"\n")
+      when defined(windows):
+        writeFile(repo / "vine.toml", "[verification]\ntest_command = \"cmd /c exit /b 0\"\n")
+      else:
+        writeFile(repo / "vine.toml", "[verification]\ntest_command = \"sh -c 'exit 0'\"\n")
       gitRun(repo, "add vine.toml")
-      gitRun(repo, "commit -q -m 'Add config'")
+      gitRun(repo, "commit -q -m \"Add config\"")
 
       let (sRes, sCode) = doStrandNew(
         taskId = "task-tw-tpd-1",
@@ -130,7 +133,7 @@ suite "Vine Advanced Two-Key Gate & Timeout Rail Suite":
       createDir(strandPath / "tests")
       writeFile(strandPath / "tests" / "test_shelfware.nim", "echo \"test only\"\n")
       gitRun(strandPath, "add tests/test_shelfware.nim")
-      gitRun(strandPath, "commit -q -m 'test: only tests'")
+      gitRun(strandPath, "commit -q -m \"test: only tests\"")
 
       let (gRes, gCode) = doBraidGate(
         branchParam = "strand/task-tw-tpd-1",
@@ -158,11 +161,14 @@ suite "Vine Advanced Two-Key Gate & Timeout Rail Suite":
         except CatchableError: discard
         removeDir(repo)
 
-      writeFile(repo / "vine.toml", "[verification]\ntest_command = \"sh -c 'exit 0'\"\n")
+      when defined(windows):
+        writeFile(repo / "vine.toml", "[verification]\ntest_command = \"cmd /c exit /b 0\"\n")
+      else:
+        writeFile(repo / "vine.toml", "[verification]\ntest_command = \"sh -c 'exit 0'\"\n")
       createDir(repo / "src")
       writeFile(repo / "src" / "existing.nim", "echo \"existing app file\"\n")
       gitRun(repo, "add vine.toml src/existing.nim")
-      gitRun(repo, "commit -q -m 'Initial app code'")
+      gitRun(repo, "commit -q -m \"Initial app code\"")
 
       let (sRes, sCode) = doStrandNew(
         taskId = "task-tw-tpd-2",
@@ -180,7 +186,7 @@ suite "Vine Advanced Two-Key Gate & Timeout Rail Suite":
       createDir(strandPath / "tests")
       writeFile(strandPath / "tests" / "test_feature.nim", "import ../src/unconsumed_feature\n")
       gitRun(strandPath, "add src/unconsumed_feature.nim tests/test_feature.nim")
-      gitRun(strandPath, "commit -q -m 'feat: unconsumed shelfware'")
+      gitRun(strandPath, "commit -q -m \"feat: unconsumed shelfware\"")
 
       let (gRes, gCode) = doBraidGate(
         branchParam = "strand/task-tw-tpd-2",
@@ -202,11 +208,14 @@ suite "Vine Advanced Two-Key Gate & Timeout Rail Suite":
         except CatchableError: discard
         removeDir(repo)
 
-      writeFile(repo / "vine.toml", "[verification]\ntest_command = \"sh -c 'echo Running Tests && exit 0'\"\n")
+      when defined(windows):
+        writeFile(repo / "vine.toml", "[verification]\ntest_command = \"cmd /c echo Running Tests && exit /b 0\"\n")
+      else:
+        writeFile(repo / "vine.toml", "[verification]\ntest_command = \"sh -c 'echo Running Tests && exit 0'\"\n")
       createDir(repo / "src")
       writeFile(repo / "src" / "main.nim", "echo \"main entrypoint\"\n")
       gitRun(repo, "add vine.toml src/main.nim")
-      gitRun(repo, "commit -q -m 'Initial app code'")
+      gitRun(repo, "commit -q -m \"Initial app code\"")
 
       let (sRes, sCode) = doStrandNew(
         taskId = "task-tw-tpd-3",
@@ -227,7 +236,7 @@ suite "Vine Advanced Two-Key Gate & Timeout Rail Suite":
       createDir(strandPath / "tests")
       writeFile(strandPath / "tests" / "test_provider.nim", "import ../src/my_provider\n")
       gitRun(strandPath, "add src/my_provider.nim src/main.nim tests/test_provider.nim")
-      gitRun(strandPath, "commit -q -m 'feat: provider and consumer integrated'")
+      gitRun(strandPath, "commit -q -m \"feat: provider and consumer integrated\"")
 
       let (gRes, gCode) = doBraidGate(
         branchParam = "strand/task-tw-tpd-3",
@@ -264,11 +273,16 @@ suite "Vine Advanced Two-Key Gate & Timeout Rail Suite":
         removeDir(repo)
 
       # Test command that hangs indefinitely (e.g. sleep 100)
-      writeFile(repo / "vine.toml", "[verification]\ntest_command = \"sh -c 'echo [START] Hanging test... && sleep 100 && echo [END]'\"\n")
+      when defined(windows):
+        writeFile(repo / "hang.bat", "@echo [START] Hanging test...\r\n@ping -n 100 127.0.0.1 >nul\r\n@echo [END]\r\n")
+        writeFile(repo / "vine.toml", "[verification]\ntest_command = \"cmd /c hang.bat\"\n")
+        gitRun(repo, "add hang.bat")
+      else:
+        writeFile(repo / "vine.toml", "[verification]\ntest_command = \"sh -c 'echo [START] Hanging test... && sleep 100 && echo [END]'\"\n")
       createDir(repo / "src")
       writeFile(repo / "src" / "main.nim", "echo \"main entrypoint\"\n")
       gitRun(repo, "add vine.toml src/main.nim")
-      gitRun(repo, "commit -q -m 'Initial app code'")
+      gitRun(repo, "commit -q -m \"Initial app code\"")
 
       let (sRes, sCode) = doStrandNew(
         taskId = "task-tw-timeout-1",
@@ -287,7 +301,7 @@ suite "Vine Advanced Two-Key Gate & Timeout Rail Suite":
       createDir(strandPath / "tests")
       writeFile(strandPath / "tests" / "test_provider.nim", "import ../src/my_provider\n")
       gitRun(strandPath, "add src/my_provider.nim src/main.nim tests/test_provider.nim")
-      gitRun(strandPath, "commit -q -m 'feat: provider and consumer integrated'")
+      gitRun(strandPath, "commit -q -m \"feat: provider and consumer integrated\"")
 
       # Run gate with a 0.5 second timeout threshold
       let (gRes, gCode) = doBraidGate(

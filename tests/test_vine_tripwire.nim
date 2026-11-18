@@ -20,10 +20,10 @@ proc createTestGitRepo(prefix: string): string =
   {.noRewrite.}:
     discard execCmdEx("git init -b main -q " & quoteShell(repo))
     discard execCmdEx("git -C " & quoteShell(repo) & " config user.email agent@braid.mesh")
-    discard execCmdEx("git -C " & quoteShell(repo) & " config user.name 'Braid Agent'")
+    discard execCmdEx("git -C " & quoteShell(repo) & " config user.name \"Braid Agent\"")
     writeFile(repo / "README.md", "# Test Repo\n")
     discard execCmdEx("git -C " & quoteShell(repo) & " add README.md")
-    discard execCmdEx("git -C " & quoteShell(repo) & " commit -q -m 'Initial commit'")
+    discard execCmdEx("git -C " & quoteShell(repo) & " commit -q -m \"Initial commit\"")
   return repo
 
 suite "Vine Native Tripwire Git Passthrough Suite":
@@ -60,7 +60,7 @@ suite "Vine Native Tripwire Git Passthrough Suite":
       # 2. Commit a feature file inside the strand
       writeFile(strandPath / "feature.txt", "Tripwire verified feature\n")
       discard execCmdEx("git -C " & quoteShell(strandPath) & " add feature.txt")
-      discard execCmdEx("git -C " & quoteShell(strandPath) & " commit -q -m 'feat: feature 1'")
+      discard execCmdEx("git -C " & quoteShell(strandPath) & " commit -q -m \"feat: feature 1\"")
 
       # 3. Run the Two-Key Gate
       let (gRes, gCode) = doBraidGate(
@@ -110,12 +110,12 @@ suite "Vine Native Tripwire Git Passthrough Suite":
       # 2. Strand commits feature
       writeFile(strandPath / "feature.txt", "Parallel strand feature\n")
       discard execCmdEx("git -C " & quoteShell(strandPath) & " add feature.txt")
-      discard execCmdEx("git -C " & quoteShell(strandPath) & " commit -q -m 'feat: parallel strand'")
+      discard execCmdEx("git -C " & quoteShell(strandPath) & " commit -q -m \"feat: parallel strand\"")
 
       # 3. Canonical trunk advances independently
       writeFile(repo / "trunk.txt", "Independent trunk update\n")
       discard execCmdEx("git -C " & quoteShell(repo) & " add trunk.txt")
-      discard execCmdEx("git -C " & quoteShell(repo) & " commit -q -m 'chore: trunk update'")
+      discard execCmdEx("git -C " & quoteShell(repo) & " commit -q -m \"chore: trunk update\"")
 
       # 4. Weave without sync fails fast
       let (wFailRes, wFailCode) = doBraidWeave(
@@ -163,7 +163,7 @@ suite "Vine Native Tripwire Git Passthrough Suite":
       # Create a file in main
       writeFile(repo / "common.txt", "Initial line 1\nInitial line 2\n")
       discard execCmdEx("git -C " & quoteShell(repo) & " add common.txt")
-      discard execCmdEx("git -C " & quoteShell(repo) & " commit -q -m 'Add common.txt'")
+      discard execCmdEx("git -C " & quoteShell(repo) & " commit -q -m \"Add common.txt\"")
 
       # Create strand
       let (sRes, sCode) = doStrandNew(
@@ -182,12 +182,12 @@ suite "Vine Native Tripwire Git Passthrough Suite":
       # Edit common.txt in strand
       writeFile(strandPath / "common.txt", "Strand changed line 1\nInitial line 2\n")
       discard execCmdEx("git -C " & quoteShell(strandPath) & " add common.txt")
-      discard execCmdEx("git -C " & quoteShell(strandPath) & " commit -q -m 'strand: modify line 1'")
+      discard execCmdEx("git -C " & quoteShell(strandPath) & " commit -q -m \"strand: modify line 1\"")
 
       # Edit common.txt differently in trunk
       writeFile(repo / "common.txt", "Trunk changed line 1 differently\nInitial line 2\n")
       discard execCmdEx("git -C " & quoteShell(repo) & " add common.txt")
-      discard execCmdEx("git -C " & quoteShell(repo) & " commit -q -m 'trunk: modify line 1 differently'")
+      discard execCmdEx("git -C " & quoteShell(repo) & " commit -q -m \"trunk: modify line 1 differently\"")
 
       # Run Gate: Key 1 MUST fail
       let (gRes, gCode) = doBraidGate(
@@ -230,9 +230,12 @@ suite "Vine Native Tripwire Git Passthrough Suite":
         removeDir(repo)
 
       # Write braid.toml with a test command that is guaranteed to fail
-      writeFile(repo / "vine.toml", "[verification]\ntest_command = \"sh -c 'echo Compiler Error && exit 42'\"\n")
+      when defined(windows):
+        writeFile(repo / "vine.toml", "[verification]\ntest_command = \"cmd /c echo Compiler Error && exit /b 42\"\n")
+      else:
+        writeFile(repo / "vine.toml", "[verification]\ntest_command = \"sh -c 'echo Compiler Error && exit 42'\"\n")
       discard execCmdEx("git -C " & quoteShell(repo) & " add vine.toml")
-      discard execCmdEx("git -C " & quoteShell(repo) & " commit -q -m 'Add failing test config'")
+      discard execCmdEx("git -C " & quoteShell(repo) & " commit -q -m \"Add failing test config\"")
 
       # Create strand
       let (sRes, sCode) = doStrandNew(
@@ -251,7 +254,7 @@ suite "Vine Native Tripwire Git Passthrough Suite":
       # Commit a change in strand with NO text conflicts
       writeFile(strandPath / "code.txt", "Syntactically clean code\n")
       discard execCmdEx("git -C " & quoteShell(strandPath) & " add code.txt")
-      discard execCmdEx("git -C " & quoteShell(strandPath) & " commit -q -m 'feat: clean code'")
+      discard execCmdEx("git -C " & quoteShell(strandPath) & " commit -q -m \"feat: clean code\"")
 
       # Run Gate: Key 1 must PASS, but Key 2 must FAIL!
       let (gRes, gCode) = doBraidGate(
@@ -298,7 +301,7 @@ suite "Vine Native Tripwire Git Passthrough Suite":
 
       # 2. Verify git worktree list includes strand
       let (wtBefore, _) = execCmdEx("git -C " & quoteShell(repo) & " worktree list")
-      check wtBefore.contains(strandPath)
+      check wtBefore.replace('\\', '/').contains("task-tw-prune")
 
       # 3. Run prune with maxAgeHours = 0.0 and dryRun = false
       let pruneRes = doStrandPrune(repoDirParam = repo, maxAgeHours = 0.0, dryRun = false)
@@ -309,11 +312,11 @@ suite "Vine Native Tripwire Git Passthrough Suite":
 
       # 5. Verify git worktree list does not contain strandPath
       let (wtAfter, _) = execCmdEx("git -C " & quoteShell(repo) & " worktree list")
-      check not wtAfter.contains(strandPath)
+      check not wtAfter.replace('\\', '/').contains("task-tw-prune")
 
   test "Reconciled SKILL.md matches skills/vine/SKILL.md":
-    let rootSkill = readFile(getCurrentDir() / "SKILL.md")
-    let pkgSkill = readFile(getCurrentDir() / "skills" / "vine" / "SKILL.md")
+    let rootSkill = readFile(getCurrentDir() / "SKILL.md").replace("\r\n", "\n")
+    let pkgSkill = readFile(getCurrentDir() / "skills" / "vine" / "SKILL.md").replace("\r\n", "\n")
     check rootSkill == pkgSkill
     check rootSkill.contains("Three-Key Gate")
     check rootSkill.contains("The Worker is NOT the Auditor")

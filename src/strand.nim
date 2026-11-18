@@ -140,6 +140,9 @@ proc doStrandNew*(
           discard execCmdEx("cp -a --reflink=auto " & quoteShell(srcV) & " " & quoteShell(dstV))
       except CatchableError:
         discard
+      if not dirExists(dstV):
+        try: copyDir(srcV, dstV)
+        except CatchableError: discard
 
   # Python Virtual Environment Policy
   let parentVenv = repoDir / ".venv"
@@ -153,6 +156,9 @@ proc doStrandNew*(
           discard execCmdEx("cp -a --reflink=auto " & quoteShell(parentVenv) & " " & quoteShell(strandVenv))
       except CatchableError:
         discard
+      if not dirExists(strandVenv):
+        try: copyDir(parentVenv, strandVenv)
+        except CatchableError: discard
     elif cfg.venvPolicy == "recreate":
       if findExe("uv").len > 0:
         try:
@@ -495,7 +501,7 @@ proc doStrandSync*(
     return (errObj, 1)
 
   let isWorktree = (manifest != nil and manifest.hasKey("tool") and manifest["tool"].getStr() == "git-worktree") or
-                   (execCmdEx("git -C " & quoteShell(canonicalRepo) & " worktree list").output.contains(strandDir))
+                   (execCmdEx("git -C " & quoteShell(canonicalRepo) & " worktree list").output.replace('\\', '/').contains(strandDir.replace('\\', '/')))
 
   # If not a worktree (e.g. rift clone), fetch baseBranch from canonical repo into strand
   if not isWorktree:

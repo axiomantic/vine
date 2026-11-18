@@ -20,10 +20,10 @@ proc createTestGitRepo(prefix: string): string =
   createDir(repo)
   discard execCmdEx("git init -b main -q " & quoteShell(repo))
   discard execCmdEx("git -C " & quoteShell(repo) & " config user.email agent@vine.mesh")
-  discard execCmdEx("git -C " & quoteShell(repo) & " config user.name 'Vine Agent'")
+  discard execCmdEx("git -C " & quoteShell(repo) & " config user.name \"Vine Agent\"")
   writeFile(repo / "README.md", "# Test Repo\n")
   discard execCmdEx("git -C " & quoteShell(repo) & " add README.md")
-  discard execCmdEx("git -C " & quoteShell(repo) & " commit -q -m 'Initial commit'")
+  discard execCmdEx("git -C " & quoteShell(repo) & " commit -q -m \"Initial commit\"")
   return repo
 
 suite "Vine Strand Lifecycle Notifications & Multicast Suite":
@@ -83,7 +83,7 @@ suite "Vine Strand Lifecycle Notifications & Multicast Suite":
       check queryElectedLeader("nonexistent-project-xyz-99999") == ""
       if isRhizoAvailable():
         let dummyLeader = "test-query-leader-" & $getCurrentProcessId()
-        discard execCmdEx("rhizo status idle 'Testing' " & quoteShell(dummyLeader))
+        discard execCmdEx("rhizo status idle \"Testing\" " & quoteShell(dummyLeader))
         discard execCmdEx("rhizo leader acquire orchestrator:vine-test-query --agent " & quoteShell(dummyLeader) & " --lease 30")
         defer:
           discard execCmdEx("rhizo leader resign orchestrator:vine-test-query --agent " & quoteShell(dummyLeader))
@@ -99,7 +99,7 @@ suite "Vine Strand Lifecycle Notifications & Multicast Suite":
 
       if isRhizoAvailable():
         let dummyLeader = "test-elected-orch-" & $getCurrentProcessId()
-        discard execCmdEx("rhizo status idle 'Testing' " & quoteShell(dummyLeader))
+        discard execCmdEx("rhizo status idle \"Testing\" " & quoteShell(dummyLeader))
         discard execCmdEx("rhizo leader acquire orchestrator:vine-test-elected --agent " & quoteShell(dummyLeader) & " --lease 30")
         defer:
           discard execCmdEx("rhizo leader resign orchestrator:vine-test-elected --agent " & quoteShell(dummyLeader))
@@ -124,7 +124,7 @@ suite "Vine Strand Lifecycle Notifications & Multicast Suite":
 
       if isRhizoAvailable():
         let dummyCreator = "test-creator-" & $getCurrentProcessId()
-        discard execCmdEx("rhizo status idle 'Testing' " & quoteShell(dummyCreator))
+        discard execCmdEx("rhizo status idle \"Testing\" " & quoteShell(dummyCreator))
         defer:
           discard execCmdEx("rhizo close " & quoteShell(dummyCreator))
 

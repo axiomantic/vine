@@ -412,7 +412,7 @@ test_command = "pytest tests/ -v"
       check aData["dry_run"].getBool() == false
       check aData["pruned_count"].getInt() == 1
       check not dirExists(strandPath)
-      check not gitRun(repoDir, "worktree list").outStr.contains(strandPath)
+      check not gitRun(repoDir, "worktree list").outStr.replace('\\', '/').contains(taskId)
 
   test "13: test_vine_diverged_trunk_sync_and_weave":
     sandbox:

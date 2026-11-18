@@ -73,12 +73,12 @@ suite "Vine Pre-Weave Changelog Gate & 'vine changelog' Suite":
 
       discard execCmdEx("git init -b main -q " & quoteShell(repo))
       discard execCmdEx("git -C " & quoteShell(repo) & " config user.email agent@axiomantic.dev")
-      discard execCmdEx("git -C " & quoteShell(repo) & " config user.name 'Axiomantic Agent'")
+      discard execCmdEx("git -C " & quoteShell(repo) & " config user.name \"Axiomantic Agent\"")
       writeFile(repo / "README.md", "# Test Repo\n")
       createDir(repo / "src")
       writeFile(repo / "src" / "main.txt", "Original\n")
       discard execCmdEx("git -C " & quoteShell(repo) & " add README.md src/main.txt")
-      discard execCmdEx("git -C " & quoteShell(repo) & " commit -q -m 'Initial commit'")
+      discard execCmdEx("git -C " & quoteShell(repo) & " commit -q -m \"Initial commit\"")
 
       # Scenario A: Repo has NO changelog -> Gate passes (changelog_gate: SKIPPED)
       let (sResA, sCodeA) = doStrandNew("task-cl-a", repo, "strand/task-cl-a", forceWorktree = true)
@@ -91,7 +91,7 @@ suite "Vine Pre-Weave Changelog Gate & 'vine changelog' Suite":
 
       writeFile(strandA / "src" / "main.txt", "Updated main\n")
       discard execCmdEx("git -C " & quoteShell(strandA) & " add src/main.txt")
-      discard execCmdEx("git -C " & quoteShell(strandA) & " commit -q -m 'feat: update main'")
+      discard execCmdEx("git -C " & quoteShell(strandA) & " commit -q -m \"feat: update main\"")
 
       let (gateResA, gateCodeA) = doBraidGate(
         branchParam = "strand/task-cl-a",
@@ -105,7 +105,7 @@ suite "Vine Pre-Weave Changelog Gate & 'vine changelog' Suite":
       # Now add CHANGELOG.md to main repo
       writeFile(repo / "CHANGELOG.md", "# Changelog\n\n## [0.1.0] - 2026-10-01\n### Added\n- Init\n")
       discard execCmdEx("git -C " & quoteShell(repo) & " add CHANGELOG.md")
-      discard execCmdEx("git -C " & quoteShell(repo) & " commit -q -m 'docs: add changelog'")
+      discard execCmdEx("git -C " & quoteShell(repo) & " commit -q -m \"docs: add changelog\"")
 
       # Scenario B: Repo HAS CHANGELOG.md, but strand does NOT modify it -> Gate FAILS (code 5)
       let (sResB, sCodeB) = doStrandNew("task-cl-b", repo, "strand/task-cl-b", forceWorktree = true)
@@ -118,7 +118,7 @@ suite "Vine Pre-Weave Changelog Gate & 'vine changelog' Suite":
 
       writeFile(strandB / "src" / "main.txt", "Feature without changelog\n")
       discard execCmdEx("git -C " & quoteShell(strandB) & " add src/main.txt")
-      discard execCmdEx("git -C " & quoteShell(strandB) & " commit -q -m 'feat: main without changelog'")
+      discard execCmdEx("git -C " & quoteShell(strandB) & " commit -q -m \"feat: main without changelog\"")
 
       let (gateResB, gateCodeB) = doBraidGate(
         branchParam = "strand/task-cl-b",
@@ -144,7 +144,7 @@ suite "Vine Pre-Weave Changelog Gate & 'vine changelog' Suite":
       # Scenario D: Strand updates CHANGELOG.md under ## [Unreleased] -> Gate PASSES
       discard doChangelogOperation(strandB, entry = "Feature with changelog", section = "Added")
       discard execCmdEx("git -C " & quoteShell(strandB) & " add CHANGELOG.md")
-      discard execCmdEx("git -C " & quoteShell(strandB) & " commit -q -m 'docs: update changelog'")
+      discard execCmdEx("git -C " & quoteShell(strandB) & " commit -q -m \"docs: update changelog\"")
 
       let (gateResD, gateCodeD) = doBraidGate(
         branchParam = "strand/task-cl-b",

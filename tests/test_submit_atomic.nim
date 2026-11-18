@@ -19,10 +19,10 @@ proc createTestGitRepo(prefix: string): string =
   createDir(repo)
   discard execCmdEx("git init -b main -q " & quoteShell(repo))
   discard execCmdEx("git -C " & quoteShell(repo) & " config user.email agent@braid.mesh")
-  discard execCmdEx("git -C " & quoteShell(repo) & " config user.name 'Braid Agent'")
+  discard execCmdEx("git -C " & quoteShell(repo) & " config user.name \"Braid Agent\"")
   writeFile(repo / "README.md", "# Test Repo\n")
   discard execCmdEx("git -C " & quoteShell(repo) & " add README.md")
-  discard execCmdEx("git -C " & quoteShell(repo) & " commit -q -m 'Initial commit'")
+  discard execCmdEx("git -C " & quoteShell(repo) & " commit -q -m \"Initial commit\"")
   return repo
 
 suite "Vine Atomic Submit (--commit & --listen) Suite":
@@ -45,7 +45,7 @@ suite "Vine Atomic Submit (--commit & --listen) Suite":
       createDir(repo / "src")
       writeFile(repo / "src" / "app.nim", "echo \"base app\"\n")
       discard execCmdEx("git -C " & quoteShell(repo) & " add src/app.nim")
-      discard execCmdEx("git -C " & quoteShell(repo) & " commit -q -m 'Add app.nim'")
+      discard execCmdEx("git -C " & quoteShell(repo) & " commit -q -m \"Add app.nim\"")
 
       let (sRes, sCode) = doStrandNew(
         taskId = "task-sub-commit",
@@ -137,7 +137,7 @@ suite "Vine Atomic Submit (--commit & --listen) Suite":
       # Create code without tests and without allowNoTests -> fails Key 2
       writeFile(strandPath / "feature.txt", "Some code\n")
       discard execCmdEx("git -C " & quoteShell(strandPath) & " add feature.txt")
-      discard execCmdEx("git -C " & quoteShell(strandPath) & " commit -q -m 'feat: some code'")
+      discard execCmdEx("git -C " & quoteShell(strandPath) & " commit -q -m \"feat: some code\"")
 
       let (fRes, fCode) = doStrandSubmit(
         strandDirParam = strandPath,
