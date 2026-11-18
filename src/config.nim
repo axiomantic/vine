@@ -2,6 +2,14 @@
 
 import std/[os, strutils, tables]
 
+when defined(inProcessTest):
+  type CliExitError* = object of Defect
+    exitCode*: int
+  proc testQuit*(code: int = 0) {.noreturn.} =
+    var e = newException(CliExitError, "CLI exit " & $code)
+    e.exitCode = code
+    raise e
+
 type
   VineConfig* = object
     primaryBranch*: string

@@ -7,21 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **100% In-Process Nim Test Suite Migration (`tests/config.nims`, `tests/test_helpers.nim`, `tests/test_vine_comprehensive.nim`, `src/vine.nim`, `src/config.nim`, `vine.nimble`, `justfile`, `.github/workflows/ci.yml`)**:
+  - Parameterized `main*(customArgs, useCustomArgs)` with `-d:inProcessTest` `CliExitError`/`testQuit` and split stdout/stderr capture (`captureIoSplit*`, `runVineInProcess*`), migrating all 39 tests from `tests/test_vine.py` (deleted) into native Nim via `nimble test`.
+- **1:1 Worker Strand Allocation Policy (`src/guide.nim`, `AGENTS.md`, `skills/vine/SKILL.md`, `SKILL.md`)**:
+  - Updated Vine workspace allocation guidance from a blanket subagent ban to strict 1:1 worker-to-strand isolation across top-level Rhizo sessions, `tmux` CLI panes, and persistent drillable subagents on Antigravity IDE and OpenCode Desktop.
+
 ### Fixed
+- **Deep Code-Review Hardening (`src/process.nim`, `src/strand.nim`, `src/weave.nim`, `src/gate.nim`, `src/update.nim`)**:
+  - Fixed POSIX `setpgid` parent/child ordering in `process.nim`, cleaned up `strand.nim` worktree fallback state, restored branch checkout on failed weaves in `weave.nim`, tightened extension checks in `gate.nim` via `splitFile`, and added HTTP timeout configuration in `update.nim`.
 - **Early Fail-Fast Auditor Validation in `vine audit` (`src/gate.nim`)**:
   - `vine audit approve` and `vine audit reject` now resolve `--auditor` and validate against generic role titles (`ERR_ROLE_AS_ID`) before attempting strand manifest lookups.
   - Prevents spurious `No strand found for: <task>` errors when required auditor credentials are missing or invalid.
-- **Cross-Platform Contract Skeleton Test Runner Compatibility (`tests/test_vine.py`)**:
-  - Replaced `./run_tests.sh` with cross-platform Python runner (`sys.executable` and `run_tests.py`) in `test_vine_contract_skeleton_mode` to ensure compatibility on Windows environments.
+- **Cross-Platform Contract Skeleton Test Runner Compatibility (`tests/test_vine_comprehensive.nim`)**:
+  - Ensured cross-platform test execution and Windows quoting compatibility across contract skeleton and gate test runners.
 - **Clear UX Message on Already-Ratified and Already-Woven Strands (`src/gate.nim`, `src/vine.nim`)**:
   - `vine audit approve` and `vine audit reject` now perform an early state check before ticket and gate token validation.
   - If a strand is already in `["AUDIT_RATIFIED", "RATIFIED"]`, exits with code 0 returning `status: "already_ratified"` and `Already ratified by <auditor> at <ratified_at>; nothing to do.` instead of failing with `Strand has not passed Keys 1 & 2`.
   - If a strand is already in `["WOVEN", "MERGED", "WEAVED", "CLOSED"]`, exits with code 0 returning `status: "already_woven"` and `Already woven into trunk by <woven_by> at <woven_at>; nothing to do.` instead of failing.
   - Added timestamp formatting helper `formatAuditEpochOrStr` converting epoch timestamps to human-readable UTC string format (`yyyy-MM-dd HH:mm:ss 'UTC'`).
-
-### Changed
-- **Release Version Bump (`vine.nimble`, `package.json`, `src/vine.nim`)**:
-  - Bumped version from 0.2.20 to 0.2.21.
 
 ## [0.2.21] - 2026-11-12
 

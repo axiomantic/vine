@@ -25,8 +25,8 @@ npm install -g @axiomantic/rhizo @axiomantic/vine
 ```
 
 ### 1. Invariants & Strand Identity
-* **Sovereign Worker Allocation**:
-  Workspaces (Strands) are allocated strictly 1:1 to sovereign, dedicated worker sessions. Never assign harness-internal subagents to strand directories to prevent git index contention and lifecycle premature termination.
+* **1:1 Worker Strand Allocation**:
+  Workspaces (Strands) are allocated strictly 1:1 to individual worker tasks/personas (whether top-level Rhizo sessions, `tmux` CLI panes, or persistent drillable subagents in Antigravity IDE / OpenCode Desktop). Never share a single strand directory concurrently across multiple workers or let opaque ephemeral subagents mutate the parent working tree directly.
 * **No Workspace-Scoped Identity Files**:
   Agent identity is strictly decoupled from directory paths. Never create or read `.rhizo.agent` or `.vine.agent` in any project or strand directory.
 * **Zero Dirty Commits**:

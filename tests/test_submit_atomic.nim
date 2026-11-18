@@ -5,6 +5,7 @@ import tripwire
 import tripwire/plugins/osproc as nfos
 import std/[os, osproc, strutils, json, unittest]
 import strand, gate, notify, config, crypto, process
+import ./test_helpers
 
 var testRepoCounter = 0
 let initialWorkingDir = getCurrentDir()

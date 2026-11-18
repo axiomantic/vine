@@ -54,7 +54,7 @@ Rift is the primary, preferred workspace engine. Git worktree is supported as a 
 </INVARIANT>
 
 <INVARIANT>
-Sovereign Worker Allocation: Workspaces are strictly 1:1 with sovereign worker tasks. Never assign harness-internal subagents or multiple concurrent workers to the same strand directory to prevent Git index collisions, cache corruption, and premature lifecycle exits.
+1:1 Worker Strand Allocation: Workspaces are strictly 1:1 with individual worker tasks/personas (whether top-level Rhizo sessions, `tmux` CLI panes, or persistent drillable subagents in Antigravity IDE / OpenCode Desktop). Never assign multiple concurrent workers to the same strand directory or let opaque ephemeral subagents mutate the parent working tree directly, to prevent Git index collisions and cache corruption.
 </INVARIANT>
 
 <FORBIDDEN>

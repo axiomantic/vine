@@ -94,9 +94,12 @@ proc formatRespCommand*(args: openArray[string]): string =
     b.add("$" & $a.len & "\r\n" & a & "\r\n")
   return b
 
-proc readRespResponse*(sock: Socket): JsonNode =
+proc readRespResponse*(sock: Socket, timeoutMs: int = -1): JsonNode =
   var line = ""
-  sock.readLine(line)
+  if timeoutMs > 0:
+    sock.readLine(line, timeout = timeoutMs)
+  else:
+    sock.readLine(line)
   if line.len == 0:
     return nil
   let prefix = line[0]
@@ -119,13 +122,18 @@ proc readRespResponse*(sock: Socket): JsonNode =
     var payload = newString(length)
     var readTotal = 0
     while readTotal < length:
-      let chunk = sock.recv(length - readTotal)
+      let chunk = if timeoutMs > 0: sock.recv(length - readTotal, timeout = timeoutMs) else: sock.recv(length - readTotal)
       if chunk.len == 0: break
       for i in 0 ..< chunk.len:
         payload[readTotal + i] = chunk[i]
       readTotal += chunk.len
+    if readTotal < length:
+      return nil
     var trailing = ""
-    sock.readLine(trailing) # Consume trailing CRLF
+    if timeoutMs > 0:
+      sock.readLine(trailing, timeout = timeoutMs) # Consume trailing CRLF
+    else:
+      sock.readLine(trailing)
     # Attempt parsing as JSON if string starts with { or [
     let trimmed = payload.strip()
     if (trimmed.startsWith("{") and trimmed.endsWith("}")) or
@@ -139,7 +147,7 @@ proc readRespResponse*(sock: Socket): JsonNode =
       return newJNull()
     var arr = newJArray()
     for _ in 0 ..< count:
-      arr.add(sock.readRespResponse())
+      arr.add(sock.readRespResponse(timeoutMs))
     return arr
   else:
     return %line
@@ -153,13 +161,13 @@ proc executeRawRedis*(args: openArray[string]): JsonNode =
     except CatchableError: discard
     if cfg.password.len > 0:
       sock.send(formatRespCommand(["AUTH", cfg.password]))
-      discard sock.readRespResponse()
+      discard sock.readRespResponse(cfg.timeoutMs)
     if cfg.db > 0:
       sock.send(formatRespCommand(["SELECT", $cfg.db]))
-      discard sock.readRespResponse()
+      discard sock.readRespResponse(cfg.timeoutMs)
 
     sock.send(formatRespCommand(args))
-    let resp = sock.readRespResponse()
+    let resp = sock.readRespResponse(cfg.timeoutMs)
     sock.close()
     return resp
   except CatchableError:
@@ -420,13 +428,16 @@ proc evalStrandLua*(action: string, args: openArray[string]): JsonNode =
     if not gFallbackStrands.hasKey(strandId):
       var err = newJObject(); err["error"] = %("Strand '" & strandId & "' does not exist"); return err
     var s = gFallbackStrands[strandId]
-    let statusVal = if newState == "GATE_PASSED": "READY_FOR_WEAVE" else: newState
+    let statusVal = if newState == "GATE_PASSED": "READY_FOR_WEAVE"
+                    elif newState == "SUBMITTED": "READY_FOR_AUDIT"
+                    elif newState == "RATIFIED": "AUDIT_RATIFIED"
+                    else: newState
     s["state"] = %newState
     s["status"] = %statusVal
     s["lifecycle_state"] = %newState
-    s["gate_token"] = %gateToken
-    s["merge_tree_sha"] = %mergeTreeSha
-    s["test_output_hash"] = %testOutputHash
+    if gateToken.len > 0: s["gate_token"] = %gateToken
+    if mergeTreeSha.len > 0: s["merge_tree_sha"] = %mergeTreeSha
+    if testOutputHash.len > 0: s["test_output_hash"] = %testOutputHash
     s["verified_at"] = %(nowEpoch)
     if newState == "GATE_PASSED" or newState == "RATIFIED":
       s.delete("last_gate_error")

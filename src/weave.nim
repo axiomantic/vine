@@ -41,20 +41,20 @@ proc doBraidWeave*(
                       else: "main"
 
   # Step 1: Run Gate check if not already verified green
+  let currentTreeSha = getMergeTreeSha(strandDir, effectiveBase)
+  let recTreeSha = if manifest != nil: manifest.getOrDefault("merge_tree_sha").getStr("") else: ""
+  let recTreeMatches = recTreeSha.len > 0 and recTreeSha == currentTreeSha
   let isAlreadyRatified = manifest != nil and (
     manifest.getOrDefault("status").getStr("") in ["AUDIT_RATIFIED", "RATIFIED"] or
     manifest.getOrDefault("lifecycle_state").getStr("") in ["AUDIT_RATIFIED", "RATIFIED"] or
     manifest.getOrDefault("state").getStr("") in ["AUDIT_RATIFIED", "RATIFIED"]
-  )
+  ) and recTreeMatches
 
   let isAlreadyPassedGate = manifest != nil and allowUnaudited and (
     manifest.getOrDefault("state").getStr("") in ["GATE_PASSED", "SUBMITTED", "RATIFIED"] or
     manifest.getOrDefault("status").getStr("") in ["READY_FOR_WEAVE", "GATE_PASSED", "READY_FOR_AUDIT", "SUBMITTED", "AUDIT_RATIFIED", "RATIFIED"] or
     manifest.getOrDefault("lifecycle_state").getStr("") in ["GATE_PASSED", "SUBMITTED", "RATIFIED"]
-  ) and (
-    let recTree = manifest.getOrDefault("merge_tree_sha").getStr("");
-    recTree.len > 0 and recTree == getMergeTreeSha(strandDir, effectiveBase)
-  )
+  ) and recTreeMatches
 
   if not force and not isAlreadyRatified and not isAlreadyPassedGate:
     let (gateRes, gateCode) = doBraidGate(
@@ -113,8 +113,9 @@ proc doBraidWeave*(
     let gateToken = manifest.getOrDefault("gate_token").getStr("")
     let recordedAuditToken = manifest.getOrDefault("audit_token").getStr("")
     let expectedAuditToken = computeAuditToken(gateToken, recordedTreeSha, auditor)
+    let liveTreeSha = getMergeTreeSha(strandDir, effectiveBase)
 
-    if recordedAuditToken.len == 0 or recordedAuditToken != expectedAuditToken:
+    if recordedTreeSha.len == 0 or recordedTreeSha != liveTreeSha or recordedAuditToken.len == 0 or recordedAuditToken != expectedAuditToken:
       var errObj = newJObject()
       errObj["status"] = %"audit_violation"
       errObj["message"] = %"Key 3 Audit Violation: Audit token mismatch or tampering detected. Re-audit the strand."
@@ -226,7 +227,7 @@ proc doBraidWeave*(
     discard weaveStrandRedis(tid, headSha, byAgent, allowUnaudited = (allowUnaudited or force))
     if findExe("rhizo").len > 0:
       let gateToken = if manifest != nil: manifest.getOrDefault("gate_token").getStr("") else: ""
-      discard execCmdEx("rhizo task complete " & quoteShell(tid) & " --gate-token " & quoteShell(gateToken))
+      discard execCmdEx("rhizo task complete " & quoteShell(tid) & " --worker orchestrator --gate-token " & quoteShell(gateToken))
 
   # Step 5: Auto-harvest matching Garden task seed if .garden exists in canonicalRepo
   let gSeeds = canonicalRepo / ".garden" / "seeds"

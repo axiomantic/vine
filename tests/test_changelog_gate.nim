@@ -5,6 +5,7 @@ import std/[os, osproc, strutils, json, unittest]
 import tripwire
 import tripwire/plugins/osproc as nfos
 import gate, config, strand, crypto, process
+import ./test_helpers
 
 suite "Vine Pre-Weave Changelog Gate & 'vine changelog' Suite":
 

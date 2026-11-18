@@ -42,6 +42,11 @@ local function update_strand_state(strand_id, old_state, new_state, project)
     end
 end
 
+local function non_empty(val, default)
+    if val and val ~= "" then return val end
+    return default
+end
+
 --------------------------------------------------------------------------------
 -- 1. ACTION: create
 -- ARGV[3]: strand_id
@@ -62,27 +67,29 @@ if action == "create" then
     end
 
     local strand_key = prefix .. "strand:" .. strand_id
+    local prev_state = nil
     if redis.call('EXISTS', strand_key) == 1 then
         local current_state = redis.call('HGET', strand_key, "state") or ""
         if current_state ~= "WOVEN" then
             return redis.error_reply("ERR: Strand '" .. strand_id .. "' already exists in state '" .. current_state .. "'")
         end
+        prev_state = current_state
     end
 
     local project = string.lower(ARGV[4] or "")
     local strand_path = ARGV[5] or ""
     local branch = ARGV[6] or ""
-    local base_branch = ARGV[7] or "main"
+    local base_branch = non_empty(ARGV[7], "main")
     local base_commit = ARGV[8] or ""
     local author = ARGV[9] or ""
-    local author_pubkey = ARGV[10] or author
+    local author_pubkey = non_empty(ARGV[10], author)
     local orchestrator = ARGV[11] or ""
     local canonical_repo = ARGV[12] or ""
     local machine_id = ARGV[13] or ""
-    local tool = ARGV[14] or "git-worktree"
-    local parent_branch = ARGV[15] or base_branch
-    local intended_merge_base = ARGV[16] or base_commit
-    local created_by = ARGV[17] or orchestrator
+    local tool = non_empty(ARGV[14], "git-worktree")
+    local parent_branch = non_empty(ARGV[15], base_branch)
+    local intended_merge_base = non_empty(ARGV[16], base_commit)
+    local created_by = non_empty(ARGV[17], orchestrator)
 
     redis.call('HSET', strand_key,
         "id", strand_id,
@@ -126,7 +133,7 @@ if action == "create" then
         redis.call('HSET', prefix .. "strands:by_path", strand_path, strand_id)
     end
 
-    update_strand_state(strand_id, nil, "PROVISIONED", project)
+    update_strand_state(strand_id, prev_state, "PROVISIONED", project)
 
     return cjson.encode({
         status = "OK",
@@ -668,17 +675,24 @@ elseif action == "update_gate" then
     local old_state = meta[1] or ""
     local project = meta[2] or ""
 
-    local status_val = (new_state == "GATE_PASSED") and "READY_FOR_WEAVE" or new_state
+    local status_val = new_state
+    if new_state == "GATE_PASSED" then
+        status_val = "READY_FOR_WEAVE"
+    elseif new_state == "SUBMITTED" then
+        status_val = "READY_FOR_AUDIT"
+    elseif new_state == "RATIFIED" then
+        status_val = "AUDIT_RATIFIED"
+    end
 
     redis.call('HSET', strand_key,
         "state", new_state,
         "status", status_val,
         "lifecycle_state", new_state,
-        "gate_token", gate_token,
-        "merge_tree_sha", merge_tree_sha,
-        "test_output_hash", test_output_hash,
         "verified_at", tostring(now)
     )
+    if gate_token ~= "" then redis.call('HSET', strand_key, "gate_token", gate_token) end
+    if merge_tree_sha ~= "" then redis.call('HSET', strand_key, "merge_tree_sha", merge_tree_sha) end
+    if test_output_hash ~= "" then redis.call('HSET', strand_key, "test_output_hash", test_output_hash) end
 
     if new_state == "GATE_PASSED" or new_state == "RATIFIED" then
         redis.call('HDEL', strand_key, "last_gate_error")

@@ -284,7 +284,7 @@ proc doStrandNew*(
   res["tool"] = %toolUsed
   return (res, 0)
 
-proc doStrandList*(repoDirParam: string = "", includeAll: bool = false): JsonNode =
+proc doStrandList*(repoDirParam: string = "", includeAll: bool = false, includeWoven: bool = false): JsonNode =
   let repoDir = if repoDirParam.len > 0: repoDirParam.normalizedPath else: getRepoRoot()
   let projectName = repoDir.splitPath.tail
   let workspacesBase = getWorkspacesBaseDir()
@@ -298,11 +298,19 @@ proc doStrandList*(repoDirParam: string = "", includeAll: bool = false): JsonNod
       for s in sNode:
         if not s.hasKey("status") and s.hasKey("state"):
           s["status"] = s["state"]
+        let st = s.getOrDefault("state").getStr("").toUpperAscii()
+        let sst = s.getOrDefault("status").getStr("").toUpperAscii()
+        if not includeAll and not includeWoven and (st in ["WOVEN", "WEAVED", "MERGED", "CLOSED"] or sst in ["WOVEN", "WEAVED", "MERGED", "CLOSED"]):
+          continue
         strands.add(s)
     elif sNode.kind == JObject:
       for _, s in sNode:
         if not s.hasKey("status") and s.hasKey("state"):
           s["status"] = s["state"]
+        let st = s.getOrDefault("state").getStr("").toUpperAscii()
+        let sst = s.getOrDefault("status").getStr("").toUpperAscii()
+        if not includeAll and not includeWoven and (st in ["WOVEN", "WEAVED", "MERGED", "CLOSED"] or sst in ["WOVEN", "WEAVED", "MERGED", "CLOSED"]):
+          continue
         strands.add(s)
 
   var res = newJObject()
@@ -393,7 +401,7 @@ proc resolveStrandAuditor*(explicitAuditor: string = ""): string =
 
 
 proc doStrandPrune*(repoDirParam: string = "", maxAgeHours: float = 24.0, dryRun: bool = true): JsonNode =
-  let listData = doStrandList(repoDirParam, includeAll = false)
+  let listData = doStrandList(repoDirParam, includeAll = false, includeWoven = true)
   var pruned = newJArray()
   let nowEpoch = getTime().toUnix().float
 
@@ -415,19 +423,20 @@ proc doStrandPrune*(repoDirParam: string = "", maxAgeHours: float = 24.0, dryRun
     except CatchableError: discard
 
     let shouldPrune = (status in ["WEAVED", "WOVEN", "MERGED", "CLOSED"]) or (ageHours >= maxAgeHours)
-    if shouldPrune and (path.len == 0 or dirExists(path)):
+    if shouldPrune:
       if not dryRun:
-        if canonRepo.len > 0 and dirExists(canonRepo):
-          discard execCmdEx("git -C " & quoteShell(canonRepo) & " worktree remove --force " & quoteShell(path))
-          discard execCmdEx("git -C " & quoteShell(canonRepo) & " worktree prune")
-        elif path.len > 0:
-          discard execCmdEx("git worktree remove --force " & quoteShell(path))
         if path.len > 0 and dirExists(path):
-          try: removeDir(path)
-          except CatchableError: discard
-        if path.len > 0 and dirExists(path.parentDir()):
-          try: removeDir(path.parentDir())
-          except CatchableError: discard
+          if canonRepo.len > 0 and dirExists(canonRepo):
+            discard execCmdEx("git -C " & quoteShell(canonRepo) & " worktree remove --force " & quoteShell(path))
+            discard execCmdEx("git -C " & quoteShell(canonRepo) & " worktree prune")
+          else:
+            discard execCmdEx("git worktree remove --force " & quoteShell(path))
+          if dirExists(path):
+            try: removeDir(path)
+            except CatchableError: discard
+          if dirExists(path.parentDir()):
+            try: removeDir(path.parentDir())
+            except CatchableError: discard
         if taskId.len > 0:
           discard pruneStrandRedis(taskId)
       var prunedItem = newJObject()
@@ -566,8 +575,15 @@ proc findStrandManifest*(query: string = "", repoDirParam: string = ""): JsonNod
     if candidateId.len > 0:
       let s = getStrandRedis(candidateId)
       if s != nil and s.kind == JObject and (s.hasKey("id") or s.hasKey("task_id")):
-        if not s.hasKey("status") and s.hasKey("state"): s["status"] = s["state"]
-        return s
+        let sp = s.getOrDefault("strand_path").getStr("")
+        let cr = s.getOrDefault("canonical_repo").getStr("")
+        let canTarget = canonicalizePath(targetDir)
+        let pathMatches = sp.len == 0 or canonicalizePath(sp) == canTarget or
+                          canTarget.startsWith(canonicalizePath(sp) & "/") or
+                          (cr.len > 0 and canonicalizePath(cr) == canTarget)
+        if pathMatches:
+          if not s.hasKey("status") and s.hasKey("state"): s["status"] = s["state"]
+          return s
 
   # Tier 3: Isolated git config (vine.taskId)
   let (cfgOut, cfgCode) = execCmdEx("git -C " & quoteShell(targetDir) & " config vine.taskId")

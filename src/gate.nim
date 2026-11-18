@@ -733,7 +733,7 @@ proc doBraidGate*(
         discard updateGateRedis(strandTaskId, "SUBMITTED", gateToken, treeSha, testOutputHash, extraJson = $extraObj)
       res["status"] = %"ready_for_audit"
       res["author"] = %effAuthor
-    elif prevStatus == "AUDIT_RATIFIED" or prevStatus == "RATIFIED":
+    elif prevStatus in ["AUDIT_RATIFIED", "RATIFIED"] or priorState in ["AUDIT_RATIFIED", "RATIFIED"]:
       discard updateGateRedis(strandTaskId, "RATIFIED", gateToken, treeSha, testOutputHash, extraJson = if extraObj.len > 0: $extraObj else: "")
     elif prevStatus in ["READY_FOR_AUDIT", "SUBMITTED"] or priorState in ["SUBMITTED", "READY_FOR_AUDIT"]:
       discard updateGateRedis(strandTaskId, "SUBMITTED", gateToken, treeSha, testOutputHash, extraJson = if extraObj.len > 0: $extraObj else: "")

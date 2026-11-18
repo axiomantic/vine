@@ -69,9 +69,11 @@ proc execCmdExWithTimeout*(
       if n > 0:
         for i in 0 ..< n: captured.add(buf[i])
       elif n == 0:
-        finalExitCode = peekExitCode(p)
-        if finalExitCode == -1:
-          discard p.waitForExit(100)
+        for _ in 0 ..< 10:
+          finalExitCode = peekExitCode(p)
+          if finalExitCode != -1:
+            break
+          discard p.waitForExit(50)
           finalExitCode = peekExitCode(p)
         break
       else:

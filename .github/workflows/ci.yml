@@ -68,23 +68,27 @@ jobs:
         with:
           tool_versions: |
             nim 2.2.12
-            python 3.12
           cache: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install Python test dependencies
+      - name: Install Nim test dependencies
         run: |
-          python -m pip install --upgrade pip pytest
+          set -euo pipefail
+          rm -rf ../tripwire
+          git clone --depth 1 https://github.com/elijahr/tripwire.git ../tripwire
+          sed -i.bak 's/const TripwireCapThreshold\* = 15/const TripwireCapThreshold* {.intdefine.} = 15/' ../tripwire/src/tripwire/cap_counter.nim
+          rm -f ../tripwire/src/tripwire/cap_counter.nim.bak
+          nimble install -y "parsetoml >= 0.7.0"
 
       - name: Build Vine binary
         run: |
           mkdir -p bin
-          nim c -d:debug --stackTrace:on --lineTrace:on -o:bin/vine src/vine.nim
+          nim c -d:release -o:bin/vine src/vine.nim
 
       - name: Run automated test suite
         run: |
-          python -m pytest -v tests/test_vine.py
+          nimble test && nimble check
 
   auto-tag:
     name: Auto-Tag on Version Bump

@@ -4,9 +4,12 @@
 import std/[os, strutils, json, sequtils]
 import strand, gate, weave, guide, config, update, notify, crypto, redis_client
 
-const Version = "0.2.21"
+when defined(inProcessTest):
+  template quit(code: int = 0) = testQuit(code)
 
-proc printHelp() =
+const Version* = "0.2.21"
+
+proc printHelp*() =
   echo "Vine v" & Version & " — Sub-Second Rift Workspaces & Zero-Mirage Git Weaving"
   echo ""
   echo "Usage:"
@@ -201,9 +204,9 @@ proc printSubcommandHelp*(subcmd: string, args: seq[string] = @[]): bool =
   else:
     return false
 
-proc main() =
+proc main*(customArgs: seq[string] = @[], useCustomArgs: bool = false) =
   gBraidWeaveProc = doBraidWeave
-  let args = commandLineParams()
+  let args = if useCustomArgs: customArgs else: commandLineParams()
   if args.len == 0 or args[0] in ["--help", "-h", "help"]:
     if args.len > 1 and printSubcommandHelp(args[1], args[2..^1]):
       quit(0)
@@ -717,10 +720,17 @@ proc main() =
           stderr.writeLine("Error: --weave is no longer supported on vine audit approve (Auditor Merge-Clerk Decoupling). Auditors only ratify Key 3; the Lead Orchestrator executes vine weave.")
           quit(2)
         weave = true
-      elif (a in ["--reason", "--findings"]) and i + 1 < args.len:
+      elif a == "--reason" and i + 1 < args.len:
         reason = args[i+1]; inc i
       elif a.startsWith("--reason="): reason = a[9..^1]
-      elif a.startsWith("--findings="): reason = a[11..^1]
+      elif a == "--findings" and i + 1 < args.len:
+        let val = args[i+1]; inc i
+        if fileExists(val): findingsFile = val
+        elif reason.len == 0: reason = val
+      elif a.startsWith("--findings="):
+        let val = a[11..^1]
+        if fileExists(val): findingsFile = val
+        elif reason.len == 0: reason = val
       elif (a in ["--evidence", "--notes"]) and i + 1 < args.len:
         evidence = args[i+1]; inc i
       elif a.startsWith("--evidence="): evidence = a[11..^1]

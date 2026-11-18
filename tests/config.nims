@@ -1,7 +1,11 @@
 # braid/tests/config.nims
-switch("path", "/Users/eek/Development/tripwire/src")
+if dirExists("/Users/eek/Development/tripwire/src"):
+  switch("path", "/Users/eek/Development/tripwire/src")
+elif dirExists("../../tripwire/src"):
+  switch("path", "../../tripwire/src")
 switch("path", "../src")
 switch("import", "tripwire/auto")
 switch("define", "tripwireActive")
-switch("define", "TripwireCapThreshold:100")
+switch("define", "inProcessTest")
+switch("define", "TripwireCapThreshold:500")
 switch("warning", "UnusedImport:off")
