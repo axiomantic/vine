@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.22] - 2026-11-18
+
 ### Changed
 - **100% In-Process Nim Test Suite Migration (`tests/config.nims`, `tests/test_helpers.nim`, `tests/test_vine_comprehensive.nim`, `src/vine.nim`, `src/config.nim`, `vine.nimble`, `justfile`, `.github/workflows/ci.yml`)**:
   - Parameterized `main*(customArgs, useCustomArgs)` with `-d:inProcessTest` `CliExitError`/`testQuit` and split stdout/stderr capture (`captureIoSplit*`, `runVineInProcess*`), migrating all 39 tests from `tests/test_vine.py` (deleted) into native Nim via `nimble test`.

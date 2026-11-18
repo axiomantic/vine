@@ -7,7 +7,7 @@ import strand, gate, weave, guide, config, update, notify, crypto, redis_client
 when defined(inProcessTest):
   template quit(code: int = 0) = testQuit(code)
 
-const Version* = "0.2.21"
+const Version* = "0.2.22"
 
 proc printHelp*() =
   echo "Vine v" & Version & " — Sub-Second Rift Workspaces & Zero-Mirage Git Weaving"
