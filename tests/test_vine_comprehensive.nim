@@ -381,7 +381,7 @@ test_command = "pytest tests/ -v"
 
       let envrcFile = strandPath / ".envrc"
       check fileExists(envrcFile)
-      check readFile(envrcFile) == canonicalContent
+      check readFile(envrcFile).replace("\r\n", "\n") == canonicalContent
       check gitRun(strandPath, "status --porcelain").outStr.strip() == ""
 
   test "12: test_vine_prune":
