@@ -196,6 +196,11 @@ proc doBraidWeave*(
     return (errObj, mCode)
 
   # Step 4: Prune strand directory (only if co-located)
+  let prevCwd = try: getCurrentDir() except CatchableError: ""
+  defer:
+    if prevCwd.len > 0 and dirExists(prevCwd):
+      try: setCurrentDir(prevCwd)
+      except CatchableError: discard
   try: setCurrentDir(canonicalRepo)
   except CatchableError: discard
 

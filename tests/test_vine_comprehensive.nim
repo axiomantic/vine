@@ -35,6 +35,10 @@ proc cleanupTestEnvironment() =
   except CatchableError:
     discard
 
+proc safeRemoveDir(d: string) =
+  try: setCurrentDir(initialWorkingDir) except CatchableError: discard
+  try: removeDir(d) except CatchableError: discard
+
 proc nextTaskId(prefix: string): string =
   inc testCounter
   result = prefix & "-" & $getCurrentProcessId() & "-" & $testCounter
@@ -93,7 +97,7 @@ suite "Vine Comprehensive In-Process Verification Suite (39 Tests)":
   test "03: test_vine_guide_lifecycle":
     let tmpDir = testTmpDir / ("guide_life_" & nextTaskId("t"))
     createDir(tmpDir)
-    defer: removeDir(tmpDir)
+    defer: safeRemoveDir(tmpDir)
     let target = tmpDir / "AGENTS.md"
 
     # 1. Check missing
@@ -125,7 +129,7 @@ suite "Vine Comprehensive In-Process Verification Suite (39 Tests)":
   test "04: test_vine_guide_unbalanced_markers_fail_safe":
     let tmpDir = testTmpDir / ("guide_mal_" & nextTaskId("t"))
     createDir(tmpDir)
-    defer: removeDir(tmpDir)
+    defer: safeRemoveDir(tmpDir)
     let target = tmpDir / "AGENTS.md"
     let corrupted = "# Agent Guide\n<!-- BEGIN VINE GUIDE [v1.0] -->\nOnly opening marker without closing marker\n"
     writeFile(target, corrupted)
@@ -147,7 +151,7 @@ suite "Vine Comprehensive In-Process Verification Suite (39 Tests)":
   test "05: test_vine_config":
     let tmpDir = testTmpDir / ("cfg_" & nextTaskId("t"))
     createDir(tmpDir)
-    defer: removeDir(tmpDir)
+    defer: safeRemoveDir(tmpDir)
     setCurrentDir(tmpDir)
 
     let r1 = runVineInProcess(["config", "show"])
@@ -169,7 +173,7 @@ suite "Vine Comprehensive In-Process Verification Suite (39 Tests)":
   test "06: test_vine_custom_config_parsing":
     let tmpDir = testTmpDir / ("cfg_custom_" & nextTaskId("t"))
     createDir(tmpDir)
-    defer: removeDir(tmpDir)
+    defer: safeRemoveDir(tmpDir)
     let tomlPath = tmpDir / "vine.toml"
     writeFile(tomlPath, """[project]
 primary_branch = "develop"
@@ -195,7 +199,7 @@ test_command = "pytest tests/ -v"
     sandbox:
       allow(nfos.osprocPluginInstance)
       let repoDir = createRepo("vine_repo")
-      defer: removeDir(repoDir)
+      defer: safeRemoveDir(repoDir)
       commitFile(repoDir, "README.md", "# Vine Repo\n", "Initial commit")
       createDir(repoDir / "deps" / "pkg")
       writeFile(repoDir / "deps" / "pkg" / "lib.txt", "vendored library\n")
@@ -270,7 +274,7 @@ test_command = "pytest tests/ -v"
     sandbox:
       allow(nfos.osprocPluginInstance)
       let repoDir = createRepo("vine_conflict")
-      defer: removeDir(repoDir)
+      defer: safeRemoveDir(repoDir)
       commitFile(repoDir, "README.md", "Line 1: Original text\n", "Initial commit")
 
       let taskId = nextTaskId("task-conf")
@@ -301,7 +305,7 @@ test_command = "pytest tests/ -v"
     sandbox:
       allow(nfos.osprocPluginInstance)
       let repoDir = createRepo("vine_compiler_fail")
-      defer: removeDir(repoDir)
+      defer: safeRemoveDir(repoDir)
       commitFile(repoDir, "README.md", "# Project\n", "Initial commit")
       when defined(windows):
         writeFile(repoDir / "fail.bat", "@echo off\r\necho Simulated compiler error\r\nexit /b 1\r\n")
@@ -334,7 +338,7 @@ test_command = "pytest tests/ -v"
     sandbox:
       allow(nfos.osprocPluginInstance)
       let repoDir = createRepo("vine_envrc")
-      defer: removeDir(repoDir)
+      defer: safeRemoveDir(repoDir)
       writeFile(repoDir / ".envrc", "export PARENT_FLAG=active\n")
       commitFile(repoDir, "README.md", "# Project\n", "Initial commit")
 
@@ -365,7 +369,7 @@ test_command = "pytest tests/ -v"
     sandbox:
       allow(nfos.osprocPluginInstance)
       let repoDir = createRepo("vine_tracked_envrc")
-      defer: removeDir(repoDir)
+      defer: safeRemoveDir(repoDir)
       let canonicalContent = "# CANONICAL TRACKED ENVRC\nexport CANONICAL_ENVRC_LOADED=1\n"
       commitFile(repoDir, ".envrc", canonicalContent, "Commit canonical tracked .envrc")
 
@@ -384,7 +388,7 @@ test_command = "pytest tests/ -v"
     sandbox:
       allow(nfos.osprocPluginInstance)
       let repoDir = createRepo("vine_prune")
-      defer: removeDir(repoDir)
+      defer: safeRemoveDir(repoDir)
       commitFile(repoDir, "README.md", "# Prune test\n", "Initial commit")
 
       let taskId = nextTaskId("task-prune")
@@ -418,7 +422,7 @@ test_command = "pytest tests/ -v"
     sandbox:
       allow(nfos.osprocPluginInstance)
       let repoDir = createRepo("vine_sync")
-      defer: removeDir(repoDir)
+      defer: safeRemoveDir(repoDir)
       commitFile(repoDir, "README.md", "# Diverged Trunk Test Repo\n", "Initial commit C0")
 
       let taskId = nextTaskId("task-sync")
@@ -467,7 +471,7 @@ test_command = "pytest tests/ -v"
     sandbox:
       allow(nfos.osprocPluginInstance)
       let repoDir = createRepo("vine_custom_gate")
-      defer: removeDir(repoDir)
+      defer: safeRemoveDir(repoDir)
       commitFile(repoDir, "README.md", "# Gate Custom Test\n", "Initial commit")
 
       let taskId = nextTaskId("task-gate")
@@ -515,7 +519,7 @@ test_command = "pytest tests/ -v"
     sandbox:
       allow(nfos.osprocPluginInstance)
       let repoDir = createRepo("vine_lifecycle")
-      defer: removeDir(repoDir)
+      defer: safeRemoveDir(repoDir)
       commitFile(repoDir, "README.md", "# Lifecycle Test\n", "Initial commit")
       doAssert gitRun(repoDir, "checkout -b develop").code == 0
       commitFile(repoDir, "develop.txt", "Develop branch base\n", "develop commit")
@@ -569,7 +573,7 @@ test_command = "pytest tests/ -v"
     sandbox:
       allow(nfos.osprocPluginInstance)
       let repoDir = createRepo("vine_colls")
-      defer: removeDir(repoDir)
+      defer: safeRemoveDir(repoDir)
       commitFile(repoDir, "shared.txt", "Line 0\n", "Initial commit")
 
       let taskA = nextTaskId("task-a")
@@ -609,7 +613,7 @@ test_command = "pytest tests/ -v"
     sandbox:
       allow(nfos.osprocPluginInstance)
       let repoDir = createRepo("vine_cmake")
-      defer: removeDir(repoDir)
+      defer: safeRemoveDir(repoDir)
       commitFile(repoDir, "CMakeLists.txt", "cmake_minimum_required(VERSION 3.20)\nproject(TestProject)\n", "Initial cmake commit")
 
       let taskId = nextTaskId("task-cmake")
@@ -627,7 +631,7 @@ test_command = "pytest tests/ -v"
       allow(nfos.osprocPluginInstance)
       let tmpDir = testTmpDir / ("env_test_" & nextTaskId("e"))
       createDir(tmpDir)
-      defer: removeDir(tmpDir)
+      defer: safeRemoveDir(tmpDir)
 
       let customToml = tmpDir / "custom_vine.toml"
       writeFile(customToml, "[project]\nprimary_branch = \"trunk\"\n[strand]\nvenv_policy = \"always\"\n[verification]\ntest_command = \"cargo test\"\n")
@@ -665,7 +669,7 @@ test_command = "pytest tests/ -v"
       let customWs = tmpDir / "custom_workspaces"
       putEnv("VINE_WORKSPACES_DIR", customWs)
       let repoDir = createRepo("env_ws_repo")
-      defer: removeDir(repoDir)
+      defer: safeRemoveDir(repoDir)
       commitFile(repoDir, "README.md", "# Test\n", "init")
 
       let taskId = nextTaskId("task-ws")
@@ -680,7 +684,7 @@ test_command = "pytest tests/ -v"
     sandbox:
       allow(nfos.osprocPluginInstance)
       let repoDir = createRepo("vine_autoresolve")
-      defer: removeDir(repoDir)
+      defer: safeRemoveDir(repoDir)
       commitFile(repoDir, "README.md", "# Autoresolve Test\n", "Initial commit")
 
       let taskId = nextTaskId("task-auto")
@@ -713,7 +717,7 @@ test_command = "pytest tests/ -v"
     sandbox:
       allow(nfos.osprocPluginInstance)
       let repoDir = createRepo("vine_cl_test")
-      defer: removeDir(repoDir)
+      defer: safeRemoveDir(repoDir)
 
       let r1 = runVineInProcess(["changelog", "--check", "--repo", repoDir])
       check r1.code == 0
@@ -747,7 +751,7 @@ test_command = "pytest tests/ -v"
     sandbox:
       allow(nfos.osprocPluginInstance)
       let repoDir = createRepo("vine_audit_lifecycle")
-      defer: removeDir(repoDir)
+      defer: safeRemoveDir(repoDir)
       commitFile(repoDir, "README.md", "# Main Repo\n", "chore: initial readme")
       commitFile(repoDir, "src/main.py", "# Main entrypoint\n", "chore: initial main")
 
@@ -808,7 +812,7 @@ test_command = "pytest tests/ -v"
     sandbox:
       allow(nfos.osprocPluginInstance)
       let repoDir = createRepo("vine_defeat_test")
-      defer: removeDir(repoDir)
+      defer: safeRemoveDir(repoDir)
       commitFile(repoDir, "src/main.py", "# Main entrypoint\nprint('hello')\n", "chore: init")
 
       let taskId = nextTaskId("task-defeat")
@@ -848,7 +852,7 @@ test_command = "pytest tests/ -v"
     sandbox:
       allow(nfos.osprocPluginInstance)
       let repoDir = createRepo("vine_subcommit")
-      defer: removeDir(repoDir)
+      defer: safeRemoveDir(repoDir)
       commitFile(repoDir, "src/app.py", "# Base app\n", "Initial commit")
 
       let taskId = nextTaskId("task-nim-subcommit")
@@ -882,7 +886,7 @@ test_command = "pytest tests/ -v"
     sandbox:
       allow(nfos.osprocPluginInstance)
       let repoDir = createRepo("vine_help_guards")
-      defer: removeDir(repoDir)
+      defer: safeRemoveDir(repoDir)
       commitFile(repoDir, "README.md", "# Test Repo\n", "initial commit")
 
       let r1 = runVineInProcess(["new", "--help"])
@@ -918,7 +922,7 @@ test_command = "pytest tests/ -v"
     sandbox:
       allow(nfos.osprocPluginInstance)
       let repoDir = createRepo("vine_ticket")
-      defer: removeDir(repoDir)
+      defer: safeRemoveDir(repoDir)
       commitFile(repoDir, "src/app.nim", "echo \"hello\"\n", "Initial commit")
 
       let taskId = nextTaskId("task-ticket")
@@ -979,7 +983,7 @@ test_command = "pytest tests/ -v"
     sandbox:
       allow(nfos.osprocPluginInstance)
       let repoDir = createRepo("vine_weave_audit")
-      defer: removeDir(repoDir)
+      defer: safeRemoveDir(repoDir)
       commitFile(repoDir, "src/main.nim", "echo \"main\"\n", "Initial commit")
 
       let taskId = nextTaskId("task-weave")
@@ -1013,7 +1017,7 @@ test_command = "pytest tests/ -v"
     sandbox:
       allow(nfos.osprocPluginInstance)
       let repoDir = createRepo("vine_trunk")
-      defer: removeDir(repoDir)
+      defer: safeRemoveDir(repoDir)
       commitFile(repoDir, "README.md", "# Trunk\n", "Initial commit")
 
       let r = runVineInProcess(["submit", "--author", "worker-none", "--dir", repoDir, "--json"])
@@ -1024,7 +1028,7 @@ test_command = "pytest tests/ -v"
     sandbox:
       allow(nfos.osprocPluginInstance)
       let repoDir = createRepo("vine_skel")
-      defer: removeDir(repoDir)
+      defer: safeRemoveDir(repoDir)
       createDir(repoDir / "src")
       createDir(repoDir / "tests")
       commitFile(repoDir, "README.md", "# Contract Repo\n", "Initial commit")
@@ -1079,7 +1083,7 @@ test_command = "pytest tests/ -v"
     sandbox:
       allow(nfos.osprocPluginInstance)
       let repoDir = createRepo("vine_inspect")
-      defer: removeDir(repoDir)
+      defer: safeRemoveDir(repoDir)
       commitFile(repoDir, "src/base.py", "# Base\n", "Initial commit")
 
       let taskId = nextTaskId("task-insp")
@@ -1115,7 +1119,7 @@ test_command = "pytest tests/ -v"
     sandbox:
       allow(nfos.osprocPluginInstance)
       let repoDir = createRepo("vine_evid")
-      defer: removeDir(repoDir)
+      defer: safeRemoveDir(repoDir)
       commitFile(repoDir, "src/base.py", "# Base\n", "Initial commit")
 
       let taskId = nextTaskId("task-evid")
@@ -1168,7 +1172,7 @@ test_command = "pytest tests/ -v"
           else: delEnv(item.k)
 
       let repoDir = createRepo("vine_id_missing")
-      defer: removeDir(repoDir)
+      defer: safeRemoveDir(repoDir)
       commitFile(repoDir, "README.md", "# Test\n", "Initial commit")
       doAssert gitRun(repoDir, "checkout -b strand/test-task").code == 0
 
@@ -1188,7 +1192,7 @@ test_command = "pytest tests/ -v"
     sandbox:
       allow(nfos.osprocPluginInstance)
       let repoDir = createRepo("vine_role_id")
-      defer: removeDir(repoDir)
+      defer: safeRemoveDir(repoDir)
       commitFile(repoDir, "README.md", "# Test\n", "Initial commit")
       doAssert gitRun(repoDir, "checkout -b strand/test-task").code == 0
 
@@ -1238,7 +1242,7 @@ test_command = "pytest tests/ -v"
     sandbox:
       allow(nfos.osprocPluginInstance)
       let repoDir = createRepo("vine_root_weave")
-      defer: removeDir(repoDir)
+      defer: safeRemoveDir(repoDir)
       commitFile(repoDir, "src/main.nim", "echo \"main\"\n", "Initial commit")
 
       let taskId = nextTaskId("task-root-weave")
@@ -1266,7 +1270,7 @@ test_command = "pytest tests/ -v"
     sandbox:
       allow(nfos.osprocPluginInstance)
       let hybridDir = createRepo("vine_tc_hybrid")
-      defer: removeDir(hybridDir)
+      defer: safeRemoveDir(hybridDir)
       writeFile(hybridDir / "CMakeLists.txt", "cmake_minimum_required(VERSION 3.16)\nproject(firmware)\n")
       writeFile(hybridDir / "hybrid.nimble", "version = \"0.1.0\"\nauthor = \"Test\"\n")
       doAssert gitRun(hybridDir, "add .").code == 0
@@ -1275,7 +1279,7 @@ test_command = "pytest tests/ -v"
       check parseJson(r1.outStr){"test_command"}.getStr("") == "nimble test"
 
       let cmakeDir = createRepo("vine_tc_cmake")
-      defer: removeDir(cmakeDir)
+      defer: safeRemoveDir(cmakeDir)
       createDir(cmakeDir / "build")
       writeFile(cmakeDir / "CMakeLists.txt", "cmake_minimum_required(VERSION 3.16)\nproject(proj)\n")
       writeFile(cmakeDir / "build" / "CTestTestfile.cmake", "# CTest testfile\n")
@@ -1285,7 +1289,7 @@ test_command = "pytest tests/ -v"
       check parseJson(r2.outStr){"test_command"}.getStr("") == "ctest --test-dir build --output-on-failure"
 
       let unconfDir = createRepo("vine_tc_unconf")
-      defer: removeDir(unconfDir)
+      defer: safeRemoveDir(unconfDir)
       commitFile(unconfDir, "CMakeLists.txt", "cmake_minimum_required(VERSION 3.16)\nproject(proj)\n", "init")
       let r3 = runVineInProcess(["gate", "--dir", unconfDir, "--json"])
       let j3 = parseJson(r3.outStr)
@@ -1295,7 +1299,7 @@ test_command = "pytest tests/ -v"
     sandbox:
       allow(nfos.osprocPluginInstance)
       let repoDir = createRepo("vine_ephemeral")
-      defer: removeDir(repoDir)
+      defer: safeRemoveDir(repoDir)
       commitFile(repoDir, "src/main.nim", "echo \"main\"\n", "Initial commit")
 
       let taskId = nextTaskId("task-ephemeral")
@@ -1329,7 +1333,7 @@ test_command = "pytest tests/ -v"
     sandbox:
       allow(nfos.osprocPluginInstance)
       let repoDir = createRepo("vine_per_aud")
-      defer: removeDir(repoDir)
+      defer: safeRemoveDir(repoDir)
       commitFile(repoDir, "src/main.nim", "echo \"main\"\n", "Initial commit")
 
       let taskId = nextTaskId("task-per-aud")
@@ -1360,7 +1364,7 @@ test_command = "pytest tests/ -v"
     sandbox:
       allow(nfos.osprocPluginInstance)
       let repoDir = createRepo("vine_state_pres")
-      defer: removeDir(repoDir)
+      defer: safeRemoveDir(repoDir)
       commitFile(repoDir, "src/main.nim", "echo \"main\"\n", "Initial commit")
 
       let taskId = nextTaskId("task-state-pres")
@@ -1404,7 +1408,7 @@ test_command = "pytest tests/ -v"
     sandbox:
       allow(nfos.osprocPluginInstance)
       let repoDir = createRepo("vine_already_ratified")
-      defer: removeDir(repoDir)
+      defer: safeRemoveDir(repoDir)
       commitFile(repoDir, "src/main.nim", "echo \"initial\"\n", "Initial commit")
 
       let taskId = nextTaskId("task-already-rat")
